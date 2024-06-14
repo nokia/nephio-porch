@@ -183,6 +183,11 @@ for resource in ctx.resource_list["items"]:
     "externalName": "host.docker.internal"
   }
 '
+  kpt fn eval \
+    --image gcr.io/kpt-fn/search-replace:v0.2.0 \
+    --match-kind APIService \
+    --match-name v1alpha1.porch.kpt.dev \
+    -- 'by-path=spec.service.port' "put-value=4443"
 
 else
   # Linux
@@ -205,6 +210,7 @@ else
 for resource in ctx.resource_list["items"]:
   resource["spec"].pop("selector")'
 fi
+
 kpt fn render 
 kpt live init || true
 kpt live apply --inventory-policy=adopt
