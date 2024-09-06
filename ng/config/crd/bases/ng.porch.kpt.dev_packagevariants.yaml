@@ -588,6 +588,15 @@ spec:
                   required:
                   - name
                   type: object
+                  x-kubernetes-validations:
+                  - message: injectPackage field is mandatory if type == InjectPackage
+                    rule: self.type != 'InjectPackage' || has(self.injectPackage)
+                  - message: injectObject field is mandatory if type == InjectObject
+                    rule: self.type != 'InjectObject' || has(self.injectObject)
+                  - message: prependPipeline field is mandatory if type == PrependPipeline
+                    rule: self.type != 'PrependPipeline' || has(self.prependPipeline)
+                  - message: appendPipeline field is mandatory if type == AppendPipeline
+                    rule: self.type != 'AppendPipeline' || has(self.appendPipeline)
                 type: array
                 x-kubernetes-list-map-keys:
                 - manager

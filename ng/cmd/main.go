@@ -51,6 +51,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(api.AddToScheme(scheme))
+	utilruntime.Must(porchapi.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

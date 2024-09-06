@@ -89,10 +89,13 @@ const (
 	MutationTypeInjectObject    MutationType = "InjectObject"
 	MutationTypePrependPipeline MutationType = "PrependPipeline"
 	MutationTypeAppendPipeline  MutationType = "AppendPipeline"
-	MutationTypeEvalKrmFunction MutationType = "EvalKrmFunction"
 )
 
 // A mutation that should be applied to the downstream package
+// +kubebuilder:validation:XValidation:message="injectPackage field is mandatory if type == InjectPackage",rule="self.type != 'InjectPackage' || has(self.injectPackage)"
+// +kubebuilder:validation:XValidation:message="injectObject field is mandatory if type == InjectObject",rule="self.type != 'InjectObject' || has(self.injectObject)"
+// +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
+// +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
 type Mutation struct {
 	// Name and Manager fields together must uniquely identify a mutation in the scope of a PackageVariant object.
 	//+required
