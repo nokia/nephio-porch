@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- ng_v1alpha1_packagevariant.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

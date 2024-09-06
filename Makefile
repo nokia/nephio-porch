@@ -147,12 +147,6 @@ generate-api:
 .PHONY: generate
 generate: generate-api ## Generate CRDs, other K8s manifests and helper go code
 	@for f in $(API_MODULES); do (cd $$f; echo "Generating for $$f ..."; go generate -v ./...) || exit 1; done
-
-# Go Modules are ordered in dependency order. A module precedes modules that depend on it.
-GO_MODULES = \
- api \
- . \
- controllers \
  
 .PHONY: tidy
 tidy:
