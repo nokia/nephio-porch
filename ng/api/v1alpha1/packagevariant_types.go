@@ -52,21 +52,29 @@ const (
 	DeletionPolicyDelete DeletionPolicy = "delete"
 	DeletionPolicyOrphan DeletionPolicy = "orphan"
 
-	ApprovalPolicyNever   ApprovalPolicy = "never"
-	ApprovalPolicyAlways  ApprovalPolicy = "always"
-	ApprovalPolicyInitial ApprovalPolicy = "initial"
+	ApprovalPolicyNever               ApprovalPolicy = "never"
+	ApprovalPolicyAlways              ApprovalPolicy = "always"
+	ApprovalPolicyInitial             ApprovalPolicy = "initial"
+	ApprovalPolicyWithManualReadiness ApprovalPolicy = "manualReadiness"
 
 	Finalizer = "config.porch.kpt.dev/packagevariants"
 )
 
 // PackageVariantSpec defines the desired state of PackageVariant
 type PackageVariantSpec struct {
-	Upstream   *Upstream   `json:"upstream,omitempty"`
-	Downstream *Downstream `json:"downstream,omitempty"`
+	//+required
+	Upstream Upstream `json:"upstream,omitempty"`
+	//+required
+	Downstream Downstream `json:"downstream,omitempty"`
 
+	//+default="adoptNone"
+	//+kubebuilder:validation:Enum=adoptExisting;adoptNone
 	AdoptionPolicy AdoptionPolicy `json:"adoptionPolicy,omitempty"`
+	//+default="delete"
+	//+kubebuilder:validation:Enum=delete;orphan
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
 	//+default="never"
+	//+kubebuilder:validation:Enum=never;always;initial;manualReadiness
 	ApprovalPolicy ApprovalPolicy `json:"approvalPolicy,omitempty"`
 	// Readiness gates added to downstream packages
 	ReadinessGates []kptfile.ReadinessGate `json:"readinessGates,omitempty"`
@@ -123,27 +131,32 @@ type InjectPackage struct {
 }
 
 type Upstream struct {
-	Repo     string `json:"repo,omitempty"`
-	Package  string `json:"package,omitempty"`
+	//+required
+	Repo string `json:"repo,omitempty"`
+	//+required
+	Package string `json:"package,omitempty"`
+	//+required
 	Revision string `json:"revision,omitempty"`
 }
 
 type Downstream struct {
-	Repo    string `json:"repo,omitempty"`
+	//+required
+	Repo string `json:"repo,omitempty"`
+	//+required
 	Package string `json:"package,omitempty"`
 }
 
 type ObjectRef struct {
-	Group     *string `json:"group,omitempty"`
-	Version   *string `json:"version,omitempty"`
-	Kind      *string `json:"kind,omitempty"`
-	Namespace *string `json:"namespace"`
+	Namespace *string `json:"namespace,omitempty"`
 	Name      string  `json:"name"`
 }
 
 // InjectObject specifies how to select in-cluster objects for
 // resolving injection points.
 type InjectObject struct {
+	Group       *string   `json:"group,omitempty"`
+	Version     *string   `json:"version,omitempty"`
+	Kind        *string   `json:"kind,omitempty"`
 	Source      ObjectRef `json:"source"`
 	Destination ObjectRef `json:"destination"`
 }

@@ -21,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
+
+	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 )
 
 type fakeClient struct {
@@ -110,4 +112,14 @@ items:
 		return fmt.Errorf("unsupported type")
 	}
 	return err
+}
+
+func withMutation(pv *api.PackageVariant, mutations ...api.Mutation) *api.PackageVariant {
+	pv = pv.DeepCopy()
+	pv.Spec.Mutations = append(pv.Spec.Mutations, mutations...)
+	return pv
+}
+
+func strptr(s string) *string {
+	return &s
 }

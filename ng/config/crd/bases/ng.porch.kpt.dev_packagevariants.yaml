@@ -43,6 +43,10 @@ spec:
             description: PackageVariantSpec defines the desired state of PackageVariant
             properties:
               adoptionPolicy:
+                default: adoptNone
+                enum:
+                - adoptExisting
+                - adoptNone
                 type: string
               annotations:
                 additionalProperties:
@@ -51,8 +55,17 @@ spec:
                 type: object
               approvalPolicy:
                 default: never
+                enum:
+                - never
+                - always
+                - initial
+                - manualReadiness
                 type: string
               deletionPolicy:
+                default: delete
+                enum:
+                - delete
+                - orphan
                 type: string
               downstream:
                 properties:
@@ -60,6 +73,9 @@ spec:
                     type: string
                   repo:
                     type: string
+                required:
+                - package
+                - repo
                 type: object
               labels:
                 additionalProperties:
@@ -299,36 +315,28 @@ spec:
                       properties:
                         destination:
                           properties:
-                            group:
-                              type: string
-                            kind:
-                              type: string
                             name:
                               type: string
                             namespace:
                               type: string
-                            version:
-                              type: string
                           required:
                           - name
-                          - namespace
                           type: object
+                        group:
+                          type: string
+                        kind:
+                          type: string
                         source:
                           properties:
-                            group:
-                              type: string
-                            kind:
-                              type: string
                             name:
                               type: string
                             namespace:
                               type: string
-                            version:
-                              type: string
                           required:
                           - name
-                          - namespace
                           type: object
+                        version:
+                          type: string
                       required:
                       - destination
                       - source
@@ -346,6 +354,10 @@ spec:
                               type: string
                             revision:
                               type: string
+                          required:
+                          - package
+                          - repo
+                          - revision
                           type: object
                         subdir:
                           description: The path within the downstream package to insert
@@ -620,7 +632,14 @@ spec:
                     type: string
                   revision:
                     type: string
+                required:
+                - package
+                - repo
+                - revision
                 type: object
+            required:
+            - downstream
+            - upstream
             type: object
           status:
             description: PackageVariantStatus defines the observed state of PackageVariant

@@ -16,7 +16,6 @@ package packagevariant
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
+	"github.com/nephio-project/porch/ng/internal/utils"
 
 	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	"github.com/nephio-project/porch/pkg/kpt/kptfileutil"
@@ -41,15 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type Options struct{}
-
-func (o *Options) InitDefaults()                       {}
-func (o *Options) BindFlags(_ string, _ *flag.FlagSet) {}
-
 // PackageVariantReconciler reconciles a PackageVariant object
 type PackageVariantReconciler struct {
 	client.Client
-	Options
 }
 
 const (
@@ -78,7 +72,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// maybe the pv was deleted
 		return ctrl.Result{}, nil
 	}
-	ctx = WithPackageRevisions(ctx, PackageRevisions(prList.Items))
+	ctx = utils.WithPackageRevisions(ctx, utils.PackageRevisions(prList.Items))
 
 	skipStatusUpdate := false
 	defer func() {
@@ -127,7 +121,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// do not requeue; failed validation requires a PV change
 		return ctrl.Result{}, nil
 	}
-	upstream, err := r.getUpstreamPR(pv.Spec.Upstream, prList)
+	upstream, err := r.getUpstreamPR(&pv.Spec.Upstream, prList)
 	if err != nil {
 		setStalledConditionsToTrue(pv, err.Error())
 		// requeue, as the upstream may appear
@@ -174,29 +168,6 @@ func (r *PackageVariantReconciler) init(ctx context.Context,
 
 func validatePackageVariant(pv *api.PackageVariant) []string {
 	var allErrs []string
-	if pv.Spec.Upstream == nil {
-		allErrs = append(allErrs, "missing required field spec.upstream")
-	} else {
-		if pv.Spec.Upstream.Repo == "" {
-			allErrs = append(allErrs, "missing required field spec.upstream.repo")
-		}
-		if pv.Spec.Upstream.Package == "" {
-			allErrs = append(allErrs, "missing required field spec.upstream.package")
-		}
-		if pv.Spec.Upstream.Revision == "" {
-			allErrs = append(allErrs, "missing required field spec.upstream.revision")
-		}
-	}
-	if pv.Spec.Downstream == nil {
-		allErrs = append(allErrs, "missing required field spec.downstream")
-	} else {
-		if pv.Spec.Downstream.Repo == "" {
-			allErrs = append(allErrs, "missing required field spec.downstream.repo")
-		}
-		if pv.Spec.Downstream.Package == "" {
-			allErrs = append(allErrs, "missing required field spec.downstream.package")
-		}
-	}
 	if pv.Spec.AdoptionPolicy == "" {
 		pv.Spec.AdoptionPolicy = api.AdoptionPolicyAdoptNone
 	}
@@ -211,9 +182,6 @@ func validatePackageVariant(pv *api.PackageVariant) []string {
 		allErrs = append(allErrs, fmt.Sprintf("spec.deletionPolicy can only be %q or %q",
 			api.DeletionPolicyOrphan, api.DeletionPolicyDelete))
 	}
-
-	// TODO: check if mutation manager+name is unique
-
 	return allErrs
 }
 

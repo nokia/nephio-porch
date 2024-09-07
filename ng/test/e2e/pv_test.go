@@ -71,12 +71,12 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 			Namespace: t.Namespace,
 		},
 		Spec: api.PackageVariantSpec{
-			Upstream: &api.Upstream{
+			Upstream: api.Upstream{
 				Repo:     upstreamRepository,
 				Package:  "basens",
 				Revision: "v3",
 			},
-			Downstream: &api.Downstream{
+			Downstream: api.Downstream{
 				Repo:    downstreamRepository,
 				Package: downstreamPackage,
 			},
@@ -161,12 +161,12 @@ func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
 			Namespace: t.Namespace,
 		},
 		Spec: api.PackageVariantSpec{
-			Upstream: &api.Upstream{
+			Upstream: api.Upstream{
 				Repo:     upstreamRepository,
 				Package:  "basens",
 				Revision: "v3",
 			},
-			Downstream: &api.Downstream{
+			Downstream: api.Downstream{
 				Repo:    downstreamRepository,
 				Package: downstreamPackage,
 			},
@@ -225,12 +225,12 @@ func (t *PvSuite) TestMissingMutationValue(ctx context.Context) {
 			Namespace: t.Namespace,
 		},
 		Spec: api.PackageVariantSpec{
-			Upstream: &api.Upstream{
+			Upstream: api.Upstream{
 				Repo:     upstreamRepository,
 				Package:  "basens",
 				Revision: "v3",
 			},
-			Downstream: &api.Downstream{
+			Downstream: api.Downstream{
 				Repo:    downstreamRepository,
 				Package: downstreamPackage,
 			},

@@ -23,7 +23,7 @@ import (
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
+	kptfile "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 )
@@ -341,9 +341,9 @@ func TestValidateInjectionPoints(t *testing.T) {
 }
 
 func TestSetInjectionPointConditionsAndGates(t *testing.T) {
-	kptfileWithGates := &kptfilev1.KptFile{
-		Info: &kptfilev1.PackageInfo{
-			ReadinessGates: []kptfilev1.ReadinessGate{
+	kptfileWithGates := &kptfile.KptFile{
+		Info: &kptfile.PackageInfo{
+			ReadinessGates: []kptfile.ReadinessGate{
 				{
 					ConditionType: "test",
 				},
@@ -352,8 +352,8 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 				},
 			},
 		},
-		Status: &kptfilev1.Status{
-			Conditions: []kptfilev1.Condition{
+		Status: &kptfile.Status{
+			Conditions: []kptfile.Condition{
 				{
 					Type:    "test",
 					Status:  "False",
@@ -377,15 +377,15 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		initialKptfile  *kptfilev1.KptFile
+		initialKptfile  *kptfile.KptFile
 		injectionPoints []*injectionPoint
-		expectedKptfile *kptfilev1.KptFile
+		expectedKptfile *kptfile.KptFile
 		expectedErr     string
 	}{
 		"no injection points": {
-			initialKptfile:  &kptfilev1.KptFile{},
+			initialKptfile:  &kptfile.KptFile{},
 			injectionPoints: nil,
-			expectedKptfile: &kptfilev1.KptFile{},
+			expectedKptfile: &kptfile.KptFile{},
 		},
 		"no injection points, existing gates and conditions": {
 			initialKptfile:  kptfileWithGates,
@@ -393,7 +393,7 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 			expectedKptfile: kptfileWithGates,
 		},
 		"optional, not injected": {
-			initialKptfile: &kptfilev1.KptFile{},
+			initialKptfile: &kptfile.KptFile{},
 			injectionPoints: []*injectionPoint{
 				{
 					file:          "file.yaml",
@@ -401,9 +401,9 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 					conditionType: "config.injection.ConfigMap.foo",
 				},
 			},
-			expectedKptfile: &kptfilev1.KptFile{
-				Status: &kptfilev1.Status{
-					Conditions: []kptfilev1.Condition{
+			expectedKptfile: &kptfile.KptFile{
+				Status: &kptfile.Status{
+					Conditions: []kptfile.Condition{
 						{
 							Type:    "config.injection.ConfigMap.foo",
 							Status:  "False",
@@ -415,7 +415,7 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 			},
 		},
 		"required, not injected": {
-			initialKptfile: &kptfilev1.KptFile{},
+			initialKptfile: &kptfile.KptFile{},
 			injectionPoints: []*injectionPoint{
 				{
 					file:          "file.yaml",
@@ -423,16 +423,16 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 					conditionType: "config.injection.ConfigMap.foo",
 				},
 			},
-			expectedKptfile: &kptfilev1.KptFile{
-				Info: &kptfilev1.PackageInfo{
-					ReadinessGates: []kptfilev1.ReadinessGate{
+			expectedKptfile: &kptfile.KptFile{
+				Info: &kptfile.PackageInfo{
+					ReadinessGates: []kptfile.ReadinessGate{
 						{
 							ConditionType: "config.injection.ConfigMap.foo",
 						},
 					},
 				},
-				Status: &kptfilev1.Status{
-					Conditions: []kptfilev1.Condition{
+				Status: &kptfile.Status{
+					Conditions: []kptfile.Condition{
 						{
 							Type:    "config.injection.ConfigMap.foo",
 							Status:  "False",
@@ -444,7 +444,7 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 			},
 		},
 		"optional, injected": {
-			initialKptfile: &kptfilev1.KptFile{},
+			initialKptfile: &kptfile.KptFile{},
 			injectionPoints: []*injectionPoint{
 				{
 					file:          "file.yaml",
@@ -454,9 +454,9 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 					injectedName:  "my-injected-resource",
 				},
 			},
-			expectedKptfile: &kptfilev1.KptFile{
-				Status: &kptfilev1.Status{
-					Conditions: []kptfilev1.Condition{
+			expectedKptfile: &kptfile.KptFile{
+				Status: &kptfile.Status{
+					Conditions: []kptfile.Condition{
 						{
 							Type:    "config.injection.ConfigMap.foo",
 							Status:  "True",
@@ -468,7 +468,7 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 			},
 		},
 		"multiple optional": {
-			initialKptfile: &kptfilev1.KptFile{},
+			initialKptfile: &kptfile.KptFile{},
 			injectionPoints: []*injectionPoint{
 				{
 					file:          "file.yaml",
@@ -492,9 +492,9 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 					injectedName:  "another-injected-resource",
 				},
 			},
-			expectedKptfile: &kptfilev1.KptFile{
-				Status: &kptfilev1.Status{
-					Conditions: []kptfilev1.Condition{
+			expectedKptfile: &kptfile.KptFile{
+				Status: &kptfile.Status{
+					Conditions: []kptfile.Condition{
 						{
 							Type:    "config.injection.AnotherResource.foo",
 							Status:  "False",
@@ -542,9 +542,9 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 					injectedName:  "another-injected-resource",
 				},
 			},
-			expectedKptfile: &kptfilev1.KptFile{
-				Info: &kptfilev1.PackageInfo{
-					ReadinessGates: []kptfilev1.ReadinessGate{
+			expectedKptfile: &kptfile.KptFile{
+				Info: &kptfile.PackageInfo{
+					ReadinessGates: []kptfile.ReadinessGate{
 						{
 							ConditionType: "config.injection.SomeResource.foo",
 						},
@@ -556,8 +556,8 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 						},
 					},
 				},
-				Status: &kptfilev1.Status{
-					Conditions: []kptfilev1.Condition{
+				Status: &kptfile.Status{
+					Conditions: []kptfile.Condition{
 						{
 							Type:    "config.injection.AnotherResource.foo",
 							Status:  "False",
@@ -607,7 +607,7 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 			err = setInjectionPointConditionsAndGates(ko, tc.injectionPoints)
 			if tc.expectedErr == "" {
 				require.NoError(t, err)
-				var actualKptfile kptfilev1.KptFile
+				var actualKptfile kptfile.KptFile
 				err = ko.As(&actualKptfile)
 				require.NoError(t, err)
 				require.Equal(t, tc.expectedKptfile, &actualKptfile)
@@ -617,23 +617,8 @@ func TestSetInjectionPointConditionsAndGates(t *testing.T) {
 		})
 	}
 }
+
 func TestEnsureConfigInjection(t *testing.T) {
-
-	pvBase := `apiVersion: config.porch.kpt.dev
-kind: PackageVariant
-metadata:
-  name: my-pv
-  uid: pv-uid
-spec:
-  upstream:
-    repo: blueprints
-    package: foo
-    revision: v1
-  downstream:
-    repo: deployments
-    package: bar
-`
-
 	prrBase := `apiVersion: porch.kpt.dev/v1alpha1
 kind: PackageRevisionResources
 metadata:
@@ -666,21 +651,31 @@ spec:
 `
 
 	testCases := map[string]struct {
-		injectors       string
+		injectors       []api.Mutation
 		injectionPoints string
 		expectedErr     string
 		expectedPRR     string
 	}{
 		"empty injectors": {
-			injectors:       ``,
+			injectors:       nil,
 			injectionPoints: ``,
 			expectedErr:     "",
 			expectedPRR:     prrBase + baseKptfile,
 		},
 		"one ConfigMap injection point": {
-			injectors: `  injectors:
-  - name: us-east1-endpoints
-`,
+			injectors: []api.Mutation{
+				{
+					Type: api.MutationTypeInjectObject,
+					InjectObject: &api.InjectObject{
+						Source: api.ObjectRef{
+							Name: "us-east1-endpoints",
+						},
+						Destination: api.ObjectRef{
+							Name: "regional-endpoints",
+						},
+					},
+				},
+			},
 			injectionPoints: `    configmap.yaml: |
       apiVersion: v1
       kind: ConfigMap
@@ -723,11 +718,22 @@ spec:
 `,
 		},
 		"one non-ConfigMap injection point": {
-			injectors: `  injectors:
-  - name: dev-team-beta
-    group: hr.example.com
-    kind: Team
-`,
+			injectors: []api.Mutation{
+				{
+					Type: api.MutationTypeInjectObject,
+					InjectObject: &api.InjectObject{
+						Group: strptr("hr.example.com"),
+						Kind:  strptr("Team"),
+						Source: api.ObjectRef{
+							Name: "dev-team-beta",
+						},
+						Destination: api.ObjectRef{
+							Name: "team",
+						},
+					},
+				},
+			},
+
 			injectionPoints: `    team.yaml: |
       apiVersion: hr.example.com/v1alpha1
       kind: Team
@@ -770,12 +776,32 @@ spec:
 `,
 		},
 		"mixed injection points": {
-			injectors: `  injectors:
-  - name: us-east2-endpoints
-  - name: dev-team-beta
-    group: hr.example.com
-    kind: Team
-`,
+			injectors: []api.Mutation{
+				{
+					Type: api.MutationTypeInjectObject,
+					InjectObject: &api.InjectObject{
+						Source: api.ObjectRef{
+							Name: "us-east2-endpoints",
+						},
+						Destination: api.ObjectRef{
+							Name: "my-cm",
+						},
+					},
+				},
+				{
+					Type: api.MutationTypeInjectObject,
+					InjectObject: &api.InjectObject{
+						Group: strptr("hr.example.com"),
+						Kind:  strptr("Team"),
+						Source: api.ObjectRef{
+							Name: "dev-team-beta",
+						},
+						Destination: api.ObjectRef{
+							Name: "team",
+						},
+					},
+				},
+			},
 			injectionPoints: `    more.yaml: |
       apiVersion: v1
       kind: ConfigMap
@@ -843,13 +869,13 @@ spec:
 	}
 	for tn, tc := range testCases {
 		t.Run(tn, func(t *testing.T) {
-			var pv api.PackageVariant
-			require.NoError(t, yaml.Unmarshal([]byte(pvBase+tc.injectors), &pv))
+			pv := withMutation(pvBase.DeepCopy(), tc.injectors...)
+
 			var prr porchapi.PackageRevisionResources
 			require.NoError(t, yaml.Unmarshal([]byte(prrBase+baseKptfile+tc.injectionPoints), &prr))
 
 			c := &fakeClient{}
-			actualErr := ensureConfigInjection(context.Background(), c, &pv, &prr)
+			actualErr := ensureConfigInjection(context.Background(), c, pv, &prr)
 			if tc.expectedErr == "" {
 				require.NoError(t, actualErr)
 			} else {

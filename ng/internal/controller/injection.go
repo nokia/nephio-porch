@@ -265,13 +265,16 @@ func (ip *injectionPoint) injectResource(u *unstructured.Unstructured) {
 func (ip *injectionPoint) matchSelector(injector api.InjectObject) *unstructured.Unstructured {
 	// Check if this selector matches this in-package object
 	g, v := fn.ParseGroupVersion(ip.object.GetAPIVersion())
-	if injector.Destination.Group != nil && *injector.Destination.Group != g {
+	if injector.Group != nil && *injector.Group != g {
 		return nil
 	}
-	if injector.Destination.Version != nil && *injector.Destination.Version != v {
+	if injector.Version != nil && *injector.Version != v {
 		return nil
 	}
-	if injector.Destination.Kind != nil && *injector.Destination.Kind != ip.object.GetKind() {
+	if injector.Kind != nil && *injector.Kind != ip.object.GetKind() {
+		return nil
+	}
+	if injector.Destination.Namespace != nil && *injector.Destination.Namespace != ip.object.GetNamespace() {
 		return nil
 	}
 	if injector.Destination.Name != "" && injector.Destination.Name != ip.object.GetName() {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package packagevariant
+package utils
 
 import (
 	"context"
@@ -22,6 +22,8 @@ import (
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // PackageRevisions represents a list of PackageRevisions with useful methods
@@ -32,11 +34,11 @@ type PackageRevisionsContextKey struct{}
 
 var packageRevisionsContextKey PackageRevisionsContextKey
 
-// PackageRevisionsFromContext extracts the PackageRevisions object from the context, returns with nil if it doesn't exist
-func PackageRevisionsFromContext(ctx context.Context) PackageRevisions {
+// PackageRevisionsFromContextOrDie extracts the PackageRevisions object from the context
+func PackageRevisionsFromContextOrDie(ctx context.Context) PackageRevisions {
 	prs, ok := ctx.Value(packageRevisionsContextKey).(PackageRevisions)
 	if !ok {
-		return PackageRevisions{}
+		panic("Logical error: PackageRevisions object is missing from the context")
 	}
 	return prs
 }
@@ -118,4 +120,33 @@ func (prs PackageRevisions) NewWorkspaceName(prefix string) porchapi.WorkspaceNa
 		}
 	}
 	return porchapi.WorkspaceName(fmt.Sprintf("%s%d", prefix, maxWsNum+1))
+}
+
+// NewDraftPR creates a new draft PackageRevision for a package in a repository
+func NewDraftPR(
+	ctx context.Context, client client.Client,
+	namespace string, repo string, pkg string, workspace porchapi.WorkspaceName,
+) (*porchapi.PackageRevision, error) {
+
+	l := log.FromContext(ctx)
+	newPR := &porchapi.PackageRevision{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "PackageRevision",
+			APIVersion: porchapi.SchemeGroupVersion.Identifier(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+		},
+		Spec: porchapi.PackageRevisionSpec{
+			RepositoryName: repo,
+			PackageName:    pkg,
+			Revision:       "",
+			WorkspaceName:  workspace,
+		},
+	}
+	if err := client.Create(ctx, newPR); err != nil {
+		return nil, err
+	}
+	l.Info(fmt.Sprintf("a new draft package revision (%v) was added to package %q", newPR.Name, pkg))
+	return newPR, nil
 }

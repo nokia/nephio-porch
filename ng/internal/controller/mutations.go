@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"strings"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/nephio-project/porch/ng/internal/utils"
 )
 
 type mutator interface {
@@ -81,7 +83,7 @@ func (i *injectPackage) Apply(ctx context.Context, prr *porchapi.PackageRevision
 	}
 
 	// Fetch the package to inject
-	prs := PackageRevisionsFromContext(ctx)
+	prs := utils.PackageRevisionsFromContextOrDie(ctx)
 	prToInject := prs.OfPackage(i.config.Package.Repo, i.config.Package.Package).Revision(i.config.Package.Revision)
 	if prToInject == nil {
 		return fmt.Errorf("couldn't find package revision to inject: %v/%v/%v", i.config.Package.Repo, i.config.Package.Package, i.config.Package.Revision)
