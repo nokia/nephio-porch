@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,11 +35,13 @@ import (
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/kio/kioutil"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
+
+	kptpkg "github.com/nephio-project/porch/internal/kpt/pkg"
 )
 
-// ParseKubeObjectsFromPR_FromContext reads KubeObjects from a PackageRevision that is identified by the given repo, pkg, and revision.
+// ParseKubeObjectsFromPrByName reads KubeObjects from a PackageRevision that is identified by the given repo, pkg, and revision.
 // The list of PackageRevisions must be in the context.
-func ParseKubeObjectsFromPR_FromContext(
+func ParseKubeObjectsFromPrByName(
 	ctx context.Context,
 	client client.Client,
 	repo, pkg, revision string,
@@ -118,95 +121,109 @@ func UpdatePRResources(ctx context.Context, client client.Client,
 
 func ReadKubeObjects(inputFiles map[string]string) (objs fn.KubeObjects, extraFiles map[string]string, err error) {
 	extraFiles = make(map[string]string)
-	results := []*yaml.RNode{}
 	for k, v := range inputFiles {
-		base := path.Base(k)
-		ext := path.Ext(base)
-
-		// TODO: use authoritative kpt filtering
-		if ext != ".yaml" && ext != ".yml" && base != "Kptfile" {
+		if IsKrmResourceFile(k) {
 			extraFiles[k] = v
 			continue
 		}
-
-		reader := &kio.ByteReader{
-			Reader: strings.NewReader(v),
-			SetAnnotations: map[string]string{
-				kioutil.PathAnnotation: k,
-			},
-			DisableUnwrapping: true,
-		}
-		var nodes []*yaml.RNode
-		nodes, err = reader.Read()
+		fileObjs, err := ReadKubeObjectsFromString(v)
 		if err != nil {
-			// TODO: fail, or bypass this file too?
-			return
+			return nil, nil, err
 		}
-		results = append(results, nodes...)
+		objs = append(objs, fileObjs...)
 	}
-
-	var rl fn.ResourceList
-	for _, node := range results {
-		err = rl.UpsertObjectToItems(node, nil, true)
-		if err != nil {
-			return
-		}
-	}
-	objs = rl.Items
 	return
+}
+
+func ReadKubeObjectsFromString(s string) (fn.KubeObjects, error) {
+	reader := &kio.ByteReader{
+		Reader: strings.NewReader(s),
+	}
+	nodes, err := reader.Read()
+	if err != nil {
+		return nil, err
+	}
+	objs := fn.ResourceList{}
+	for _, node := range nodes {
+		err = objs.UpsertObjectToItems(node, nil, false)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return objs.Items, nil
 }
 
 func WriteKubeObjects(objs fn.KubeObjects) (map[string]string, error) {
 	output := map[string]string{}
 	paths := map[string][]*fn.KubeObject{}
 	for _, obj := range objs {
-		path := getPath(obj)
+		path := PathOfKubeObject(obj)
 		paths[path] = append(paths[path], obj)
 	}
 
-	// TODO: write directly into the package resources abstraction.
-	// For now serializing into memory.
-	buf := &bytes.Buffer{}
+	var err error
 	for path, objs := range paths {
-		bw := kio.ByteWriter{
-			Writer: buf,
-			ClearAnnotations: []string{
-				kioutil.PathAnnotation,
-			},
-		}
-
-		nodes := []*yaml.RNode{}
-		for _, obj := range objs {
-			node, err := AsRNode(obj)
-			if err != nil {
-				return nil, err
-			}
-			nodes = append(nodes, node)
-		}
-		if err := bw.Write(nodes); err != nil {
+		output[path], err = WriteKubeObjectsToString(objs)
+		if err != nil {
 			return nil, err
 		}
-		output[path] = buf.String()
-		buf.Reset()
 	}
 	return output, nil
 }
 
-func getPath(node *fn.KubeObject) string {
-	ann := node.GetAnnotations()
-	if path, ok := ann[kioutil.PathAnnotation]; ok {
-		return path
+func WriteKubeObjectsToString(objs fn.KubeObjects) (string, error) {
+	buf := &bytes.Buffer{}
+	bw := kio.ByteWriter{
+		Writer: buf,
+		ClearAnnotations: []string{
+			kioutil.PathAnnotation,
+		},
+	}
+
+	nodes := []*yaml.RNode{}
+	for _, obj := range objs {
+		node, err := AsRNode(obj)
+		if err != nil {
+			return "", err
+		}
+		nodes = append(nodes, node)
+	}
+	if err := bw.Write(nodes); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// PathOfKubeObject returns the path of a KubeObject within a package
+// If no path annotation is found, it returns a default path based on the namespace and name of the object
+func PathOfKubeObject(node *fn.KubeObject) string {
+	pathAnno := node.PathAnnotation()
+	if pathAnno != "" {
+		return pathAnno
 	}
 	ns := node.GetNamespace()
 	if ns == "" {
-		ns = "non-namespaced"
+		ns = "no-namespace"
 	}
 	name := node.GetName()
 	if name == "" {
 		name = "unnamed"
 	}
-	// TODO: harden for escaping etc.
 	return path.Join(ns, fmt.Sprintf("%s.yaml", name))
+}
+
+// IsKrmResourceFile checks if a file in a kpt package should be parsed for KRM resources
+func IsKrmResourceFile(path string) bool {
+
+	// Only use the filename for the check for whether we should
+	// include the file.
+	filename := filepath.Base(path)
+	for _, m := range kptpkg.MatchAllKRM {
+		if matched, err := filepath.Match(m, filename); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 // AsRNode converts a KubeObject to a yaml.RNode

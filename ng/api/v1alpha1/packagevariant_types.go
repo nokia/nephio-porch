@@ -88,6 +88,10 @@ type PackageVariantSpec struct {
 	//+listMapKey=manager
 	//+listMapKey=name
 	Mutations []Mutation `json:"mutations,omitempty"`
+
+	// The ServiceAccount to use when trying to access resources in other namespaces
+	//+default="default"
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 }
 
 type MutationType string
@@ -112,6 +116,8 @@ type Mutation struct {
 	//+default=""
 	Manager string `json:"manager,omitempty"`
 	// Type selector enum for the union type
+	//+required
+	//+kubebuilder:validation:Enum=InjectPackage;InjectObject;PrependPipeline;AppendPipeline
 	Type MutationType `json:"type,omitempty"`
 	// Data for "InjectPackage" type
 	InjectPackage *InjectPackage `json:"injectPackage,omitempty"`

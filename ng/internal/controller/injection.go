@@ -21,17 +21,18 @@ import (
 	"sort"
 	"strings"
 
-	"sigs.k8s.io/kustomize/kyaml/kio"
-
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
-	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
-	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kustomize/kyaml/kio"
+
+	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
+	api "github.com/nephio-project/porch/ng/api/v1alpha1"
+	"github.com/nephio-project/porch/ng/internal/utils"
+	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 )
 
 const (
@@ -118,7 +119,10 @@ func ensureConfigInjection(ctx context.Context,
 	// this might do some files more than once, but that's ok
 	for _, ip := range injectionPoints {
 		if ip.injected {
-			prr.Spec.Resources[ip.file] = kubeobjectsToYaml(files[ip.file])
+			prr.Spec.Resources[ip.file], err = utils.WriteKubeObjectsToString(files[ip.file])
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -134,23 +138,15 @@ func ensureConfigInjection(ctx context.Context,
 	return nil
 }
 
-func kubeobjectsToYaml(kos fn.KubeObjects) string {
-	var yamls []string
-	for _, ko := range kos {
-		yamls = append(yamls, ko.String())
-	}
-	return strings.Join(yamls, "---\n")
-}
-
 func parseFiles(prr *porchapi.PackageRevisionResources) (map[string]fn.KubeObjects, error) {
 	result := make(map[string]fn.KubeObjects)
-	for file, r := range prr.Spec.Resources {
+	for file, content := range prr.Spec.Resources {
 		if !includeFile(file) {
 			continue
 		}
 
 		// Convert to KubeObjects for easier processing
-		kos, err := fn.ParseKubeObjects([]byte(r))
+		kos, err := utils.ReadKubeObjectsFromString(content)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s", file, err.Error())
 		}

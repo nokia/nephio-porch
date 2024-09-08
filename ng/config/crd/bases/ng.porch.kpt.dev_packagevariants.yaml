@@ -596,9 +596,15 @@ spec:
                       type: object
                     type:
                       description: Type selector enum for the union type
+                      enum:
+                      - InjectPackage
+                      - InjectObject
+                      - PrependPipeline
+                      - AppendPipeline
                       type: string
                   required:
                   - name
+                  - type
                   type: object
                   x-kubernetes-validations:
                   - message: injectPackage field is mandatory if type == InjectPackage
@@ -624,6 +630,11 @@ spec:
                   - conditionType
                   type: object
                 type: array
+              serviceAccountName:
+                default: default
+                description: The ServiceAccount to use when trying to access resources
+                  in other namespaces
+                type: string
               upstream:
                 properties:
                   package:
