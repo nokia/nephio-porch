@@ -42,7 +42,8 @@ var _ mutator = &injectPR{}
 
 func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
 	l := log.FromContext(ctx)
-	mutationID := fmt.Sprintf("%s/%s/%s/%s", m.pv.Namespace, m.pv.Name, m.mutation.Manager, m.mutation.Name)
+	pvId := fmt.Sprintf("%s/%s", m.pv.Namespace, m.pv.Name)
+	mutationId := fmt.Sprintf("%s/%s", m.mutation.Manager, m.mutation.Name)
 	cfg := m.mutation.InjectPackageRevision
 	if cfg.Subdir == "" {
 		cfg.Subdir = cfg.Package
@@ -54,7 +55,7 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 		return fmt.Errorf("couldn't read Repository %q: %w", cfg.Repo, err)
 	}
 	if repo.Spec.Git == nil {
-		return fmt.Errorf("not supported mutation (%s): injecting package from repository %q that is not a Git repository", mutationID, cfg.Repo)
+		return fmt.Errorf("not supported mutation (%s): injecting package from repository %q that is not a Git repository", mutationId, cfg.Repo)
 	}
 
 	kobjs, _, err := utils.ReadKubeObjects(prr.Spec.Resources)
@@ -63,7 +64,10 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 	}
 	kptfilesInjectedByUs := kobjs.
 		Where(fn.IsGroupKind(kptfileapi.KptFileGVK().GroupKind())).
-		Where(fn.HasAnnotations(map[string]string{InjectedByAnnotation: mutationID}))
+		Where(fn.HasAnnotations(map[string]string{
+			InjectedByResourceAnnotation: pvId,
+			InjectedByMutationAnnotation: mutationId,
+		}))
 
 	injectionDone := false
 	subdirsToDelete := make([]string, 0)
@@ -85,21 +89,8 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 		// delete everything from the target subdir if we are going to inject a new package
 		subdirsToDelete = append(subdirsToDelete, cfg.Subdir)
 	}
-
 	// delete every package previously injected by us that doesn't match the current injection parameters
-	newResources := make(map[string]string)
-	for filename, content := range prr.Spec.Resources {
-		toBeDeleted := false
-		for _, subdir := range subdirsToDelete {
-			if strings.HasPrefix(filename, subdir+"/") {
-				toBeDeleted = true
-				break
-			}
-		}
-		if !toBeDeleted {
-			newResources[filename] = content
-		}
-	}
+	prr.Spec.Resources = deleteSubDirs(subdirsToDelete, prr.Spec.Resources)
 
 	if !injectionDone {
 		// Fetch the package to inject
@@ -127,7 +118,8 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 				if err != nil {
 					return fmt.Errorf("couldn't parse KptFile of package revision to be injected (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
 				}
-				kptfile.SetAnnotation(InjectedByAnnotation, mutationID)
+				kptfile.SetAnnotation(InjectedByResourceAnnotation, pvId)
+				kptfile.SetAnnotation(InjectedByMutationAnnotation, mutationId)
 				upstream := upstreamGit(cfg, &repo)
 				kptfile.SetNestedString(upstream.Repo, "upstream", "git", "repo")
 				kptfile.SetNestedString(upstream.Directory, "upstream", "git", "directory")
@@ -135,13 +127,12 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 				content = kptfile.String()
 				kptfileFound = true
 			}
-			newResources[cfg.Subdir+"/"+filename] = content
+			prr.Spec.Resources[cfg.Subdir+"/"+filename] = content
 		}
 		if !kptfileFound {
 			return fmt.Errorf("couldn't find KptFile in the package revision to be injected (%s/%s/%s)", cfg.Repo, cfg.Package, cfg.Revision)
 		}
 	}
-	prr.Spec.Resources = newResources
 	return nil
 }
 

@@ -772,7 +772,7 @@ func (r *PackageVariantReconciler) calculateDraftResources(ctx context.Context,
 		return nil, false, err
 	}
 
-	if err := r.ensureMutations(ctx, pv, &prr); err != nil {
+	if err := ensureMutations(ctx, r.Client, pv, &prr); err != nil {
 		return nil, false, err
 	}
 

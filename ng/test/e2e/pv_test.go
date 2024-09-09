@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 	"github.com/nephio-project/porch/test/e2e"
@@ -141,6 +142,38 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 			t.Errorf("Resource %s is not expected to be in the downstream package", name)
 		}
 	}
+
+	t.Logf("Deleting the the injection of the 'empty' package, expecting it to be deleted from the downstream package.")
+	pv.Spec.Mutations = pv.Spec.Mutations[:1]
+	t.UpdateF(ctx, pv)
+	// give it some time for the reconciler to be called at least once
+	time.Sleep(2 * time.Second)
+
+	_ = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	downstreamPR = t.WaitUntilDraftPackageRevisionExists(ctx, downstreamRepository, downstreamPackage)
+	downstreamPRR = t.WaitUntilPackageRevisionResourcesExists(ctx, client.ObjectKeyFromObject(downstreamPR))
+
+	expectedContents = t.GetContentsOfPackageRevision(ctx, upstreamRepository, "basens", "v3")
+	injected1 = t.GetContentsOfPackageRevision(ctx, upstreamRepository, "basens", "v2")
+	for name, content := range injected1 {
+		expectedContents["basens/"+name] = content
+	}
+
+	got, want = downstreamPRR.Spec.Resources, expectedContents
+	// Only compare the name of the files, not the contents.
+	// The content of the files are changed by normal PackageVariant behavior.
+	// NOTE: the comparison below is obviously not efficient, but it is intended to produce a useful error message.
+	for name := range want {
+		if _, found := got[name]; !found {
+			t.Errorf("Resource %s is missing from the downstream package", name)
+		}
+	}
+	for name := range got {
+		if _, found := want[name]; !found {
+			t.Errorf("Resource %s is not expected to be in the downstream package", name)
+		}
+	}
+
 }
 
 func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
