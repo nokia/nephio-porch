@@ -17,6 +17,7 @@ package packagevariant
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -33,11 +34,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -49,9 +52,6 @@ type PackageVariantReconciler struct {
 const (
 	fieldOwner          = "ng-packagevariant" // field owner for server-side applies
 	workspaceNamePrefix = "packagevariant-"
-
-	ConditionTypeValid = "Valid" // whether or not the packagevariant object is making progress or not
-	ConditionTypeReady = "Ready" // whether or not the reconciliation succeeded
 )
 
 //go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.1 rbac:headerFile=../../../../../scripts/boilerplate.yaml.txt,roleName=porch-controllers-packagevariants webhook paths="." output:rbac:artifacts:config=../../../config/rbac
@@ -73,10 +73,25 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// maybe the pv was deleted
 		return ctrl.Result{}, nil
 	}
+	l := log.FromContext(ctx)
+	l.Info(fmt.Sprintf("reconciling package variant %q", req))
 	ctx = utils.WithPackageRevisions(ctx, utils.PackageRevisions(prList.Items))
 
 	defer func() {
-		statusErr := r.ApplyStatus(ctx, pv)
+		statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Update the status of the PackageVariant object
+			// get the PV again, since we may have modified it (e.g. by adding a finalizer)
+			var newPV api.PackageVariant
+			statusErr2 := r.Client.Get(ctx, req.NamespacedName, &newPV)
+			if statusErr2 != nil {
+				return client.IgnoreNotFound(statusErr2)
+			}
+			if reflect.DeepEqual(newPV.Status, pv.Status) {
+				return nil
+			}
+			newPV.Status = pv.Status
+			return r.Client.Status().Update(ctx, &newPV)
+		})
 		if statusErr != nil {
 			if err == nil {
 				err = fmt.Errorf("couldn't update status: %w", statusErr)
@@ -103,7 +118,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		// Remove our finalizer from the list and update it.
 		if controllerutil.RemoveFinalizer(pv, api.Finalizer) {
-			if err := r.ApplyPV(ctx, pv); err != nil {
+			if err := r.Update(ctx, pv); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to delete finalizer: %w", err)
 			}
 		}
@@ -112,7 +127,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// the object is not being deleted, so let's ensure that our finalizer is here
 	if controllerutil.AddFinalizer(pv, api.Finalizer) {
-		if err := r.ApplyPV(ctx, pv); err != nil {
+		if err := r.Update(ctx, pv); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
 		}
 	}
@@ -129,7 +144,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	}
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeValid,
+		Type:    api.ConditionTypeValid,
 		Status:  "True",
 		Reason:  "Valid",
 		Message: "all validation checks passed",
@@ -138,7 +153,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	targets, err := r.ensurePackageVariant(ctx, pv, upstream, prList)
 	if err != nil {
 		meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-			Type:    ConditionTypeReady,
+			Type:    api.ConditionTypeReady,
 			Status:  "False",
 			Reason:  "Error",
 			Message: err.Error(),
@@ -150,33 +165,6 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	setTargetStatusConditions(pv, targets)
 
 	return ctrl.Result{}, nil
-}
-
-func (r *PackageVariantReconciler) ApplyPV(ctx context.Context, pv *api.PackageVariant) error {
-	// only specify fields we care about and want to own
-	patch := &api.PackageVariant{
-		TypeMeta: pv.TypeMeta,
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       pv.Name,
-			Namespace:  pv.Namespace,
-			Finalizers: pv.Finalizers,
-		},
-		Status: pv.Status,
-	}
-	return r.Client.Patch(ctx, patch, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
-}
-
-func (r *PackageVariantReconciler) ApplyStatus(ctx context.Context, pv *api.PackageVariant) error {
-	patch := &api.PackageVariant{
-		TypeMeta: pv.TypeMeta,
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       pv.Name,
-			Namespace:  pv.Namespace,
-			Finalizers: pv.Finalizers,
-		},
-		Status: pv.Status,
-	}
-	return r.Client.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
 }
 
 func (r *PackageVariantReconciler) init(ctx context.Context,
@@ -238,13 +226,13 @@ func (r *PackageVariantReconciler) getUpstreamPR(upstream *api.Upstream,
 
 func setValidConditionToFalse(pv *api.PackageVariant, message string) {
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeValid,
+		Type:    api.ConditionTypeValid,
 		Status:  "False",
 		Reason:  "ValidationError",
 		Message: message,
 	})
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeReady,
+		Type:    api.ConditionTypeReady,
 		Status:  "False",
 		Reason:  "Error",
 		Message: "invalid packagevariant object",
@@ -687,7 +675,7 @@ func setTargetStatusConditions(pv *api.PackageVariant, targets []*porchapi.Packa
 	}
 	pv.Status.DownstreamTargets = downstreams
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeReady,
+		Type:    api.ConditionTypeReady,
 		Status:  "True",
 		Reason:  "NoErrors",
 		Message: "successfully ensured downstream package variant",
@@ -716,22 +704,39 @@ func (r *PackageVariantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+func isPrAndPvRelated(pr *porchapi.PackageRevision, pv *api.PackageVariant) bool {
+	if pv.Spec.Upstream.Repo == pr.Spec.RepositoryName &&
+		pv.Spec.Upstream.Package == pr.Spec.PackageName &&
+		pv.Spec.Upstream.Revision == pr.Spec.Revision {
+		return true
+	}
+	// if pv.Spec.Downstream.Repo == pr.Spec.RepositoryName &&
+	// 	pv.Spec.Downstream.Package == pr.Spec.PackageName {
+	// 	return true
+	// }
+
+	return false
+}
+
 func mapObjectsToRequests(mgrClient client.Reader) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		attachedPackageVariants := &api.PackageVariantList{}
-		err := mgrClient.List(ctx, attachedPackageVariants, &client.ListOptions{
-			Namespace: obj.GetNamespace(),
-		})
+		pr := obj.(*porchapi.PackageRevision)
+
+		pvs := &api.PackageVariantList{}
+		err := mgrClient.List(ctx, pvs, &client.ListOptions{Namespace: obj.GetNamespace()})
 		if err != nil {
 			return []reconcile.Request{}
 		}
-		requests := make([]reconcile.Request, len(attachedPackageVariants.Items))
-		for i, item := range attachedPackageVariants.Items {
-			requests[i] = reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      item.GetName(),
-					Namespace: item.GetNamespace(),
-				},
+
+		requests := make([]reconcile.Request, 0, len(pvs.Items))
+		for _, pv := range pvs.Items {
+			if isPrAndPvRelated(pr, &pv) {
+				requests = append(requests, reconcile.Request{
+					NamespacedName: types.NamespacedName{
+						Name:      pv.GetName(),
+						Namespace: pv.GetNamespace(),
+					},
+				})
 			}
 		}
 		return requests

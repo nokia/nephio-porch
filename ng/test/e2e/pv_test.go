@@ -110,6 +110,8 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 	defer t.DeleteE(ctx, pv)
 	t.CreateF(ctx, pv)
 
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+
 	// get the contents of the downstream PR
 	downstreamPR := t.WaitUntilDraftPackageRevisionExists(ctx, downstreamRepository, downstreamPackage)
 	downstreamPRR := t.WaitUntilPackageRevisionResourcesExists(ctx, client.ObjectKeyFromObject(downstreamPR))

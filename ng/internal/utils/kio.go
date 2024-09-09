@@ -121,12 +121,12 @@ func UpdatePRResources(ctx context.Context, client client.Client,
 
 func ReadKubeObjects(inputFiles map[string]string) (objs fn.KubeObjects, extraFiles map[string]string, err error) {
 	extraFiles = make(map[string]string)
-	for k, v := range inputFiles {
-		if IsKrmResourceFile(k) {
-			extraFiles[k] = v
+	for path, content := range inputFiles {
+		if !IsKrmResourceFile(path) {
+			extraFiles[path] = content
 			continue
 		}
-		fileObjs, err := ReadKubeObjectsFromString(v)
+		fileObjs, err := ReadKubeObjectsFromString(content, path)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -135,9 +135,13 @@ func ReadKubeObjects(inputFiles map[string]string) (objs fn.KubeObjects, extraFi
 	return
 }
 
-func ReadKubeObjectsFromString(s string) (fn.KubeObjects, error) {
+func ReadKubeObjectsFromString(s string, path string) (fn.KubeObjects, error) {
 	reader := &kio.ByteReader{
 		Reader: strings.NewReader(s),
+		SetAnnotations: map[string]string{
+			kioutil.PathAnnotation: path,
+		},
+		DisableUnwrapping: true,
 	}
 	nodes, err := reader.Read()
 	if err != nil {

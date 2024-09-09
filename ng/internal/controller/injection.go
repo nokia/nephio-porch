@@ -146,7 +146,7 @@ func parseFiles(prr *porchapi.PackageRevisionResources) (map[string]fn.KubeObjec
 		}
 
 		// Convert to KubeObjects for easier processing
-		kos, err := utils.ReadKubeObjectsFromString(content)
+		kos, err := utils.ReadKubeObjectsFromString(content, file)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s", file, err.Error())
 		}

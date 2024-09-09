@@ -20,6 +20,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	ConditionTypeValid = "Valid" // whether or not the packagevariant object is making progress or not
+	ConditionTypeReady = "Ready" // whether or not the reconciliation succeeded
+)
+
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 

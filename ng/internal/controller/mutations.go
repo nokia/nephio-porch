@@ -17,13 +17,13 @@ package packagevariant
 import (
 	"context"
 	"fmt"
-	"strings"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	"github.com/nephio-project/porch/ng/internal/utils"
+)
+
+const (
+	InjectedByAnnotation = "PackageVariant.porch.kpt.dev/injected-by"
 )
 
 type mutator interface {
@@ -42,9 +42,10 @@ func (r *PackageVariantReconciler) ensureMutations(ctx context.Context, pv *api.
 			if mutation.InjectPackageRevision == nil {
 				return fmt.Errorf("mutation type %s requires a non-empty InjectPackage field", api.MutationTypeInjectPackageRevision)
 			}
-			mutator = &injectPackage{
-				config: mutation.InjectPackageRevision,
-				client: r.Client,
+			mutator = &injectPR{
+				mutation: &mutation,
+				client:   r.Client,
+				pv:       pv,
 			}
 		default:
 			return fmt.Errorf("unsupported mutation type: %s", mutation.Type)
@@ -56,54 +57,5 @@ func (r *PackageVariantReconciler) ensureMutations(ctx context.Context, pv *api.
 		}
 
 	}
-	return nil
-}
-
-// injectPackage is a mutator that injects a whole package into the target package revision
-type injectPackage struct {
-	config *api.InjectPackageRevision
-	client client.Client
-}
-
-var _ mutator = &injectPackage{}
-
-func (i *injectPackage) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
-
-	newResources := make(map[string]string)
-
-	if i.config.Subdir == "" {
-		i.config.Subdir = i.config.Package
-	}
-
-	// delete everything from the target subdir
-	for filename, content := range prr.Spec.Resources {
-		if !strings.HasPrefix(filename, i.config.Subdir+"/") {
-			newResources[filename] = content
-		}
-	}
-
-	// Fetch the package to inject
-	prs := utils.PackageRevisionsFromContextOrDie(ctx)
-	prToInject := prs.OfPackage(i.config.Repo, i.config.Package).Revision(i.config.Revision)
-	if prToInject == nil {
-		return fmt.Errorf("couldn't find package revision to inject: %v/%v/%v", i.config.Repo, i.config.Package, i.config.Revision)
-	}
-	if !porchapi.LifecycleIsPublished(prToInject.Spec.Lifecycle) {
-		return fmt.Errorf("package revision to inject (%v/%v/%v) must be published, but it's lifecycle state is %s", i.config.Repo, i.config.Package, i.config.Revision, prToInject.Spec.Lifecycle)
-	}
-
-	// Load the PackageRevisionResources
-	var prrToInject porchapi.PackageRevisionResources
-	if err := i.client.Get(ctx, client.ObjectKeyFromObject(prToInject), &prrToInject); err != nil {
-		return fmt.Errorf("couldn't read the package revision that should be inserted (%s/%s/%s): %w", i.config.Repo, i.config.Package, i.config.Revision, err)
-	}
-
-	// Inject the resources
-	for filename, content := range prrToInject.Spec.Resources {
-		newResources[i.config.Subdir+"/"+filename] = content
-	}
-
-	prr.Spec.Resources = newResources
-
 	return nil
 }
