@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,10 +48,11 @@ type PackageVariantReconciler struct {
 }
 
 const (
+	fieldOwner          = "ng-packagevariant" // field owner for server-side applies
 	workspaceNamePrefix = "packagevariant-"
 
-	ConditionTypeStalled = "Stalled" // whether or not the packagevariant object is making progress or not
-	ConditionTypeReady   = "Ready"   // whether or not the reconciliation succeeded
+	ConditionTypeValid = "Valid" // whether or not the packagevariant object is making progress or not
+	ConditionTypeReady = "Ready" // whether or not the reconciliation succeeded
 )
 
 //go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.1 rbac:headerFile=../../../../../scripts/boilerplate.yaml.txt,roleName=porch-controllers-packagevariants webhook paths="." output:rbac:artifacts:config=../../../config/rbac
@@ -63,7 +65,7 @@ const (
 //+kubebuilder:rbac:groups=config.porch.kpt.dev,resources=repositories,verbs=get;list;watch
 
 // Reconcile implements the main kubernetes reconciliation loop.
-func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
 	pv, prList, err := r.init(ctx, req)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -74,14 +76,25 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	ctx = utils.WithPackageRevisions(ctx, utils.PackageRevisions(prList.Items))
 
-	skipStatusUpdate := false
 	defer func() {
-		if !skipStatusUpdate {
-			if err := r.Client.Status().Update(ctx, pv); err != nil {
-				klog.Errorf("could not update status: %s\n", err.Error())
+		statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			// Update the status of the PackageVariant object
+			// get the PV again, since we may have modified it (e.g. by adding a finalizer)
+			var newPV api.PackageVariant
+			statusErr2 := r.Client.Get(ctx, req.NamespacedName, &newPV)
+			if statusErr2 != nil {
+				return client.IgnoreNotFound(statusErr2)
+			}
+			newPV.Status = pv.Status
+			return r.Client.Status().Update(ctx, &newPV)
+		})
+		if statusErr != nil {
+			if err == nil {
+				err = fmt.Errorf("couldn't update status: %w", statusErr)
+			} else {
+				err = fmt.Errorf("couldn't update status because %q;\nwhile processing this error: %w", statusErr, err)
 			}
 		}
-
 	}()
 
 	if !pv.ObjectMeta.DeletionTimestamp.IsZero() {
@@ -89,7 +102,6 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// are deleted. Normally, garbage collection can handle this, but we have a special case here because
 		// (a) we cannot delete published packagerevisions and instead have to propose deletion of them
 		// (b) we may want to orphan packagerevisions instead of deleting them.
-		skipStatusUpdate = true
 		for _, pr := range prList.Items {
 			if r.hasOurOwnerReference(pv, pr.OwnerReferences) {
 				r.deleteOrOrphan(ctx, &pr, pv)
@@ -101,35 +113,35 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 		// Remove our finalizer from the list and update it.
-		controllerutil.RemoveFinalizer(pv, api.Finalizer)
-		if err := r.Update(ctx, pv); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update %s after delete finalizer: %w", req.Name, err)
+		if controllerutil.RemoveFinalizer(pv, api.Finalizer) {
+			if err := r.ApplyPV(ctx, pv); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to delete finalizer: %w", err)
+			}
 		}
 		return ctrl.Result{}, nil
 	}
 
 	// the object is not being deleted, so let's ensure that our finalizer is here
-	if !controllerutil.ContainsFinalizer(pv, api.Finalizer) {
-		controllerutil.AddFinalizer(pv, api.Finalizer)
-		if err := r.Update(ctx, pv); err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to update %s after add finalizer: %w", req.Name, err)
+	if controllerutil.AddFinalizer(pv, api.Finalizer) {
+		if err := r.ApplyPV(ctx, pv); err != nil {
+			return ctrl.Result{}, fmt.Errorf("failed to add finalizer: %w", err)
 		}
 	}
 
 	if errs := validatePackageVariant(pv); len(errs) > 0 {
-		setStalledConditionsToTrue(pv, combineErrors(errs))
+		setValidConditionToFalse(pv, combineErrors(errs))
 		// do not requeue; failed validation requires a PV change
 		return ctrl.Result{}, nil
 	}
 	upstream, err := r.getUpstreamPR(&pv.Spec.Upstream, prList)
 	if err != nil {
-		setStalledConditionsToTrue(pv, err.Error())
+		setValidConditionToFalse(pv, err.Error())
 		// requeue, as the upstream may appear
 		return ctrl.Result{}, err
 	}
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeStalled,
-		Status:  "False",
+		Type:    ConditionTypeValid,
+		Status:  "True",
 		Reason:  "Valid",
 		Message: "all validation checks passed",
 	})
@@ -149,6 +161,33 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	setTargetStatusConditions(pv, targets)
 
 	return ctrl.Result{}, nil
+}
+
+func (r *PackageVariantReconciler) ApplyPV(ctx context.Context, pv *api.PackageVariant) error {
+	// only specify fields we care about and want to own
+	patch := &api.PackageVariant{
+		TypeMeta: pv.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       pv.Name,
+			Namespace:  pv.Namespace,
+			Finalizers: pv.Finalizers,
+		},
+		Status: pv.Status,
+	}
+	return r.Client.Patch(ctx, patch, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
+}
+
+func (r *PackageVariantReconciler) ApplyStatus(ctx context.Context, pv *api.PackageVariant) error {
+	patch := &api.PackageVariant{
+		TypeMeta: pv.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       pv.Name,
+			Namespace:  pv.Namespace,
+			Finalizers: pv.Finalizers,
+		},
+		Status: pv.Status,
+	}
+	return r.Client.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
 }
 
 func (r *PackageVariantReconciler) init(ctx context.Context,
@@ -208,10 +247,10 @@ func (r *PackageVariantReconciler) getUpstreamPR(upstream *api.Upstream,
 		upstream.Package, upstream.Revision, upstream.Repo)
 }
 
-func setStalledConditionsToTrue(pv *api.PackageVariant, message string) {
+func setValidConditionToFalse(pv *api.PackageVariant, message string) {
 	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeStalled,
-		Status:  "True",
+		Type:    ConditionTypeValid,
+		Status:  "False",
 		Reason:  "ValidationError",
 		Message: message,
 	})
