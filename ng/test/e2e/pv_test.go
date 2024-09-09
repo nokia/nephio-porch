@@ -83,9 +83,9 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 			Mutations: []api.Mutation{
 				{
 					Name: "inject-basens-v2",
-					Type: api.MutationTypeInjectPackage,
-					InjectPackage: &api.InjectPackage{
-						Package: api.Upstream{
+					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						Upstream: api.Upstream{
 							Repo:     upstreamRepository,
 							Package:  "basens",
 							Revision: "v2",
@@ -94,9 +94,9 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 				},
 				{
 					Name: "inject-empty-v1",
-					Type: api.MutationTypeInjectPackage,
-					InjectPackage: &api.InjectPackage{
-						Package: api.Upstream{
+					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						Upstream: api.Upstream{
 							Repo:     upstreamRepository,
 							Package:  "empty",
 							Revision: "v1",
@@ -173,9 +173,9 @@ func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
 			Mutations: []api.Mutation{
 				{
 					Name: "my-mutation",
-					Type: api.MutationTypeInjectPackage,
-					InjectPackage: &api.InjectPackage{
-						Package: api.Upstream{
+					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						Upstream: api.Upstream{
 							Repo:     upstreamRepository,
 							Package:  "basens",
 							Revision: "v2",
@@ -184,9 +184,9 @@ func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
 				},
 				{
 					Name: "my-mutation",
-					Type: api.MutationTypeInjectPackage,
-					InjectPackage: &api.InjectPackage{
-						Package: api.Upstream{
+					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						Upstream: api.Upstream{
 							Repo:     upstreamRepository,
 							Package:  "empty",
 							Revision: "v1",
@@ -237,7 +237,7 @@ func (t *PvSuite) TestMissingMutationValue(ctx context.Context) {
 			Mutations: []api.Mutation{
 				{
 					Name: "inject-basens-v2",
-					Type: api.MutationTypeInjectPackage,
+					Type: api.MutationTypeInjectPackageRevision,
 				},
 			},
 		},

@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,17 +76,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	ctx = utils.WithPackageRevisions(ctx, utils.PackageRevisions(prList.Items))
 
 	defer func() {
-		statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// Update the status of the PackageVariant object
-			// get the PV again, since we may have modified it (e.g. by adding a finalizer)
-			var newPV api.PackageVariant
-			statusErr2 := r.Client.Get(ctx, req.NamespacedName, &newPV)
-			if statusErr2 != nil {
-				return client.IgnoreNotFound(statusErr2)
-			}
-			newPV.Status = pv.Status
-			return r.Client.Status().Update(ctx, &newPV)
-		})
+		statusErr := r.ApplyStatus(ctx, pv)
 		if statusErr != nil {
 			if err == nil {
 				err = fmt.Errorf("couldn't update status: %w", statusErr)

@@ -97,14 +97,15 @@ type PackageVariantSpec struct {
 type MutationType string
 
 const (
-	MutationTypeInjectPackage   MutationType = "InjectPackage"
-	MutationTypeInjectObject    MutationType = "InjectObject"
-	MutationTypePrependPipeline MutationType = "PrependPipeline"
-	MutationTypeAppendPipeline  MutationType = "AppendPipeline"
+	MutationTypeInjectPackageRevision       MutationType = "InjectPackageRevision"
+	MutationTypeInjectLatestPackageRevision MutationType = "InjectLatestPackageRevision"
+	MutationTypeInjectObject                MutationType = "InjectObject"
+	MutationTypePrependPipeline             MutationType = "PrependPipeline"
+	MutationTypeAppendPipeline              MutationType = "AppendPipeline"
 )
 
 // A mutation that should be applied to the downstream package
-// +kubebuilder:validation:XValidation:message="injectPackage field is mandatory if type == InjectPackage",rule="self.type != 'InjectPackage' || has(self.injectPackage)"
+// +kubebuilder:validation:XValidation:message="injectPackageRevision field is mandatory if type == InjectPackageRevision",rule="self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)"
 // +kubebuilder:validation:XValidation:message="injectObject field is mandatory if type == InjectObject",rule="self.type != 'InjectObject' || has(self.injectObject)"
 // +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
 // +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
@@ -117,10 +118,10 @@ type Mutation struct {
 	Manager string `json:"manager,omitempty"`
 	// Type selector enum for the union type
 	//+required
-	//+kubebuilder:validation:Enum=InjectPackage;InjectObject;PrependPipeline;AppendPipeline
+	//+kubebuilder:validation:Enum=InjectPackageRevision;InjectObject;PrependPipeline;AppendPipeline
 	Type MutationType `json:"type,omitempty"`
-	// Data for "InjectPackage" type
-	InjectPackage *InjectPackage `json:"injectPackage,omitempty"`
+	// Data for "InjectPackageRevision" type
+	InjectPackageRevision *InjectPackageRevision `json:"injectPackageRevision,omitempty"`
 	// Data for "AppendPipeline" type
 	InjectObject *InjectObject `json:"injectObject,omitempty"`
 	// Data for "PrependPipeline" type
@@ -129,9 +130,9 @@ type Mutation struct {
 	AppendPipeline *kptfile.Pipeline `json:"appendPipeline,omitempty"`
 }
 
-type InjectPackage struct {
-	// The package to be inserted into the downstream package.
-	Package Upstream `json:"package,omitempty"`
+type InjectPackageRevision struct {
+	// The package revision to be inserted into the downstream package.
+	Upstream `json:",inline"`
 	// The path within the downstream package to insert the package.
 	Subdir string `json:"subdir,omitempty"`
 }

@@ -341,28 +341,23 @@ spec:
                       - destination
                       - source
                       type: object
-                    injectPackage:
-                      description: Data for "InjectPackage" type
+                    injectPackageRevision:
+                      description: Data for "InjectPackageRevision" type
                       properties:
                         package:
-                          description: The package to be inserted into the downstream
-                            package.
-                          properties:
-                            package:
-                              type: string
-                            repo:
-                              type: string
-                            revision:
-                              type: string
-                          required:
-                          - package
-                          - repo
-                          - revision
-                          type: object
+                          type: string
+                        repo:
+                          type: string
+                        revision:
+                          type: string
                         subdir:
                           description: The path within the downstream package to insert
                             the package.
                           type: string
+                      required:
+                      - package
+                      - repo
+                      - revision
                       type: object
                     manager:
                       default: ""
@@ -597,7 +592,7 @@ spec:
                     type:
                       description: Type selector enum for the union type
                       enum:
-                      - InjectPackage
+                      - InjectPackageRevision
                       - InjectObject
                       - PrependPipeline
                       - AppendPipeline
@@ -607,8 +602,8 @@ spec:
                   - type
                   type: object
                   x-kubernetes-validations:
-                  - message: injectPackage field is mandatory if type == InjectPackage
-                    rule: self.type != 'InjectPackage' || has(self.injectPackage)
+                  - message: injectPackageRevision field is mandatory if type == InjectPackageRevision
+                    rule: self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)
                   - message: injectObject field is mandatory if type == InjectObject
                     rule: self.type != 'InjectObject' || has(self.injectObject)
                   - message: prependPipeline field is mandatory if type == PrependPipeline
