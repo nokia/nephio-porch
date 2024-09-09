@@ -5,7 +5,7 @@
 domain: porch.kpt.dev
 layout:
 - go.kubebuilder.io/v4
-projectName: ng
+projectName: ng-porch
 repo: github.com/nephio-project/porch
 resources:
 - api:

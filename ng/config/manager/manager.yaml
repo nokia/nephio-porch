@@ -3,9 +3,9 @@ kind: Namespace
 metadata:
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: ng
+    app.kubernetes.io/name: ng-porch
     app.kubernetes.io/managed-by: kustomize
-  name: system
+  name: porch-system
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -14,7 +14,7 @@ metadata:
   namespace: system
   labels:
     control-plane: controller-manager
-    app.kubernetes.io/name: ng
+    app.kubernetes.io/name: ng-porch
     app.kubernetes.io/managed-by: kustomize
 spec:
   selector:

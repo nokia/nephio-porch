@@ -2,7 +2,7 @@ apiVersion: ng.porch.kpt.dev/v1alpha1
 kind: PackageVariant
 metadata:
   labels:
-    app.kubernetes.io/name: ng
+    app.kubernetes.io/name: ng-porch
     app.kubernetes.io/managed-by: kustomize
   name: packagevariant-sample
 spec:
