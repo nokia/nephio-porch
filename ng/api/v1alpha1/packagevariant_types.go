@@ -54,13 +54,14 @@ const (
 	AdoptionPolicyAdoptExisting AdoptionPolicy = "adoptExisting"
 	AdoptionPolicyAdoptNone     AdoptionPolicy = "adoptNone"
 
-	DeletionPolicyDelete DeletionPolicy = "delete"
-	DeletionPolicyOrphan DeletionPolicy = "orphan"
+	DeletionPolicyDelete          DeletionPolicy = "delete"
+	DeletionPolicyProposeDeletion DeletionPolicy = "proposeDeletion"
+	DeletionPolicyOrphan          DeletionPolicy = "orphan"
 
-	ApprovalPolicyNever               ApprovalPolicy = "never"
-	ApprovalPolicyAlways              ApprovalPolicy = "always"
-	ApprovalPolicyInitial             ApprovalPolicy = "initial"
-	ApprovalPolicyWithManualReadiness ApprovalPolicy = "manualReadiness"
+	ApprovalPolicyNever                 ApprovalPolicy = "never"
+	ApprovalPolicyAlways                ApprovalPolicy = "always"
+	ApprovalPolicyInitial               ApprovalPolicy = "initial"
+	ApprovalPolicyAlwaysWithManualEdits ApprovalPolicy = "alwaysWithManualEdits"
 
 	Finalizer = "config.porch.kpt.dev/packagevariants"
 )

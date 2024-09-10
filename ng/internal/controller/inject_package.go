@@ -58,6 +58,7 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 			return fmt.Errorf("couldn't find latest package revision to inject from %v/%v", cfg.Repo, cfg.Package)
 		}
 		cfg.Revision = pr.Spec.Revision
+		cfg.Subdir = m.mutation.InjectLatestPackageRevision.Subdir
 	default:
 		return fmt.Errorf("unsupported mutation type for package injection: %s", m.mutation.Type)
 	}

@@ -45,6 +45,7 @@ type mutator interface {
 // NOTE: this is not a member of the Reconciler for easier unit testing
 func ensureMutations(ctx context.Context, cl client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources) error {
 	l := log.FromContext(ctx)
+	errors := make([]string, 0)
 	for _, mutation := range pv.Spec.Mutations {
 		// map Mutation API object to a mutator
 		var mutator mutator
@@ -63,12 +64,16 @@ func ensureMutations(ctx context.Context, cl client.Client, pv *api.PackageVaria
 		}
 
 		// apply mutation
-		if err := mutator.Apply(ctx, prr); err != nil {
-			return err
+		err := mutator.Apply(ctx, prr)
+		if err != nil {
+			errors = append(errors, mutation.Id()+": "+err.Error())
 		}
 
 	}
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
+	if len(errors) > 0 {
+		return fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
+	}
 	return nil
 }
 
