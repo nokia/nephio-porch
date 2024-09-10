@@ -127,7 +127,9 @@ func main() {
 		Client: client.Options{
 			Cache: &client.CacheOptions{
 				DisableFor: []client.Object{
-					&porchapi.PackageRevisionResources{}},
+					&porchapi.PackageRevisionResources{},
+					&porchapi.PackageRevision{},
+				},
 			},
 		},
 		Scheme:                 scheme,

@@ -16,41 +16,15 @@ package e2e
 
 import (
 	"context"
-	"os"
-	"testing"
+	"time"
 
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	"github.com/nephio-project/porch/test/e2e"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	testBlueprintsRepo = "https://github.com/platkrm/test-blueprints.git"
-)
-
-type PvSuite struct {
-	e2e.TestSuiteWithGit
-}
-
-var _ e2e.Initializer = &PvSuite{}
-
-func TestE2E(t *testing.T) {
-	if os.Getenv("E2E") == "" {
-		t.Skip("set E2E to run this test")
-	}
-
-	pvSuite := PvSuite{}
-	e2e.RunSuite(&pvSuite, t)
-}
-
-func (t *PvSuite) Initialize(ctx context.Context) {
-	t.TestSuiteWithGit.Initialize(ctx)
-	utilruntime.Must(api.AddToScheme(t.Client.Scheme()))
-}
-
-func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
+func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 	const (
 		downstreamRepository = "target"
 		downstreamPackage    = "target-package"
@@ -60,70 +34,7 @@ func (t *PvSuite) TestMutationsWithSameName(ctx context.Context) {
 	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
 	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
 
-	pv := &api.PackageVariant{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: api.GroupVersion.String(),
-			Kind:       "PackageVariant",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-pv",
-			Namespace: t.Namespace,
-		},
-		Spec: api.PackageVariantSpec{
-			Upstream: api.PackageRevisionRef{
-				Repo:     upstreamRepository,
-				Package:  "basens",
-				Revision: "v3",
-			},
-			Downstream: api.PackageRef{
-				Repo:    downstreamRepository,
-				Package: downstreamPackage,
-			},
-			Mutations: []api.Mutation{
-				{
-					Name: "my-mutation",
-					Type: api.MutationTypeInjectPackageRevision,
-					InjectPackageRevision: &api.InjectPackageRevision{
-						PackageRevisionRef: api.PackageRevisionRef{
-							Repo:     upstreamRepository,
-							Package:  "basens",
-							Revision: "v2",
-						},
-					},
-				},
-				{
-					Name: "my-mutation",
-					Type: api.MutationTypeInjectPackageRevision,
-					InjectPackageRevision: &api.InjectPackageRevision{
-						PackageRevisionRef: api.PackageRevisionRef{
-							Repo:     upstreamRepository,
-							Package:  "empty",
-							Revision: "v1",
-						},
-					},
-				},
-			},
-		},
-	}
-	t.Log("Trying to create a PackageVariant with two mutations with the same name... expecting error.")
-	err := t.Client.Create(ctx, pv)
-	if err == nil {
-		t.Errorf("expected error while creating PV with non-unique mutation IDs, got nil")
-		t.DeleteE(ctx, pv)
-	}
-	t.Logf("Got expected error: %v", err)
-}
-
-func (t *PvSuite) TestMissingMutationValue(ctx context.Context) {
-	const (
-		downstreamRepository = "target"
-		downstreamPackage    = "target-package"
-		upstreamRepository   = "test-blueprints"
-	)
-
-	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
-	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
-
+	t.Log("Testing PackageVariant with InjectPackageRevision mutations")
 	pv := &api.PackageVariant{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: api.GroupVersion.String(),
@@ -147,15 +58,125 @@ func (t *PvSuite) TestMissingMutationValue(ctx context.Context) {
 				{
 					Name: "inject-basens-v2",
 					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						PackageRevisionRef: api.PackageRevisionRef{
+							Repo:     upstreamRepository,
+							Package:  "basens",
+							Revision: "v2",
+						},
+					},
+				},
+				{
+					Name: "inject-empty-v1",
+					Type: api.MutationTypeInjectPackageRevision,
+					InjectPackageRevision: &api.InjectPackageRevision{
+						PackageRevisionRef: api.PackageRevisionRef{
+							Repo:     upstreamRepository,
+							Package:  "empty",
+							Revision: "v1",
+						},
+					},
 				},
 			},
 		},
 	}
-	t.Log("Trying to create a PackageVariant with missing mutation parameters... expecting error.")
-	err := t.Client.Create(ctx, pv)
-	if err == nil {
-		t.Errorf("expected error, got nil")
-		t.DeleteE(ctx, pv)
+
+	defer t.DeleteE(ctx, pv)
+	t.CreateF(ctx, pv)
+
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv)
+
+	t.Log("Deleting the the injection of the 'empty' package, expecting it to be deleted from the downstream package.")
+	pv.Spec.Mutations = pv.Spec.Mutations[:1]
+	t.UpdateF(ctx, pv)
+	// give it some time for the reconciler to be called at least once
+	time.Sleep(2 * time.Second)
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv)
+
+	t.Log("changing the basens injection, expecting the downstream package to be updated.")
+	pv.Spec.Mutations[0].InjectPackageRevision.Subdir = "new-basens"
+	t.UpdateF(ctx, pv)
+	// give it some time for the reconciler to be called at least once
+	time.Sleep(2 * time.Second)
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv)
+
+	t.Log("changing the basens injection, expecting the downstream package to be updated.")
+	pv.Spec.Mutations[0].InjectPackageRevision.Package = "empty"
+	pv.Spec.Mutations[0].InjectPackageRevision.Revision = "v1"
+	t.UpdateF(ctx, pv)
+	// give it some time for the reconciler to be called at least once
+	time.Sleep(2 * time.Second)
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv)
+}
+
+func (t *PvSuite) TestPackageVariantMutationInjectLatestRevision(ctx context.Context) {
+	const (
+		downstreamRepository = "target"
+		downstreamPackage    = "target-package"
+		upstreamRepository   = "test-blueprints"
+	)
+
+	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
+	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
+
+	t.Log("Testing PackageVariant with InjectPackageRevision mutations")
+	pv := &api.PackageVariant{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: api.GroupVersion.String(),
+			Kind:       "PackageVariant",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pv",
+			Namespace: t.Namespace,
+		},
+		Spec: api.PackageVariantSpec{
+			Upstream: api.PackageRevisionRef{
+				Repo:     upstreamRepository,
+				Package:  "basens",
+				Revision: "v3",
+			},
+			Downstream: api.PackageRef{
+				Repo:    downstreamRepository,
+				Package: downstreamPackage,
+			},
+			Mutations: []api.Mutation{
+				{
+					Name: "inject-basens-v3",
+					Type: api.MutationTypeInjectLatestPackageRevision,
+					InjectLatestPackageRevision: &api.InjectLatestPackageRevision{
+						PackageRef: api.PackageRef{
+							Repo:    upstreamRepository,
+							Package: "basens",
+						},
+					},
+				},
+			},
+		},
 	}
-	t.Logf("Got expected error: %v", err)
+
+	defer t.DeleteE(ctx, pv)
+	t.CreateF(ctx, pv)
+
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv, &api.InjectPackageRevision{
+		PackageRevisionRef: api.PackageRevisionRef{
+			Repo:     upstreamRepository,
+			Package:  "basens",
+			Revision: "v3",
+		},
+		Subdir: "basens",
+	})
+
+	t.Log("Deleting the the injection of the 'empty' package, expecting it to be deleted from the downstream package.")
+	pv.Spec.Mutations = nil
+	t.UpdateF(ctx, pv)
+	// give it some time for the reconciler to be called at least once
+	time.Sleep(2 * time.Second)
+	pv = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv))
+	t.CheckInjectedSubPackages(ctx, pv)
+
 }

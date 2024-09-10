@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -35,29 +36,44 @@ import (
 type injectPR struct {
 	mutation *api.Mutation
 	client   client.Client
-	pv       *api.PackageVariant
+	pvKey    types.NamespacedName
 }
 
 var _ mutator = &injectPR{}
 
 func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
 	l := log.FromContext(ctx)
-	pvId := fmt.Sprintf("%s/%s", m.pv.Namespace, m.pv.Name)
-	mutationId := fmt.Sprintf("%s/%s", m.mutation.Manager, m.mutation.Name)
-	cfg := m.mutation.InjectPackageRevision
+
+	prs := utils.PackageRevisionsFromContextOrDie(ctx)
+
+	var cfg api.InjectPackageRevision
+	switch m.mutation.Type {
+	case api.MutationTypeInjectPackageRevision:
+		cfg = *m.mutation.InjectPackageRevision
+	case api.MutationTypeInjectLatestPackageRevision:
+		cfg.Repo = m.mutation.InjectLatestPackageRevision.Repo
+		cfg.Package = m.mutation.InjectLatestPackageRevision.Package
+		pr := prs.OfPackage(cfg.Repo, cfg.Package).Latest()
+		if pr == nil {
+			return fmt.Errorf("couldn't find latest package revision to inject from %v/%v", cfg.Repo, cfg.Package)
+		}
+		cfg.Revision = pr.Spec.Revision
+	default:
+		return fmt.Errorf("unsupported mutation type for package injection: %s", m.mutation.Type)
+	}
 	if cfg.Subdir == "" {
 		cfg.Subdir = cfg.Package
 	}
 
 	// get porch Repository of package to inject
 	var repo configapi.Repository
-	if err := m.client.Get(ctx, client.ObjectKey{Name: cfg.Repo, Namespace: m.pv.Namespace}, &repo); err != nil {
+	if err := m.client.Get(ctx, client.ObjectKey{Name: cfg.Repo, Namespace: m.pvKey.Namespace}, &repo); err != nil {
 		return fmt.Errorf("couldn't read Repository %q: %w", cfg.Repo, err)
 	}
 	if repo.Spec.Git == nil {
-		return fmt.Errorf("not supported mutation (%s): injecting package from repository %q that is not a Git repository", mutationId, cfg.Repo)
+		return fmt.Errorf("not supported mutation (%s): injecting package from repository %q that is not a Git repository", m.mutation.Id(), cfg.Repo)
 	}
-
+	// find sub-packages injected by us
 	kobjs, _, err := utils.ReadKubeObjects(prr.Spec.Resources)
 	if err != nil {
 		return fmt.Errorf("couldn't read KubeObjects from PackageRevisionResources %q: %w", client.ObjectKeyFromObject(prr), err)
@@ -65,10 +81,11 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 	kptfilesInjectedByUs := kobjs.
 		Where(fn.IsGroupKind(kptfileapi.KptFileGVK().GroupKind())).
 		Where(fn.HasAnnotations(map[string]string{
-			InjectedByResourceAnnotation: pvId,
-			InjectedByMutationAnnotation: mutationId,
+			InjectedByResourceAnnotation: m.pvKey.String(),
+			InjectedByMutationAnnotation: m.mutation.Id(),
 		}))
 
+	// check if the sub-package was already injected with the same parameters
 	injectionDone := false
 	subdirsToDelete := make([]string, 0)
 	for _, kptfile := range kptfilesInjectedByUs {
@@ -76,11 +93,11 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 			l.Info("WARNING: KptFile resource injected by packagevariant has no / in its path annotation")
 			continue
 		}
-		if injectedBySameMutation(kptfile, cfg, &repo) {
+		if injectedBySameMutation(kptfile, &cfg, &repo) {
 			// we found a KptFile that we injected before, and matches with the required injection
 			injectionDone = true
 		} else {
-			// we found a KptFile that we injected before, but doesn't match with the required injection
+			// delete packages previously injected by us that doesn't match the current injection parameters
 			subdirsToDelete = append(subdirsToDelete, filepath.Dir(kptfile.PathAnnotation()))
 		}
 	}
@@ -89,49 +106,50 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 		// delete everything from the target subdir if we are going to inject a new package
 		subdirsToDelete = append(subdirsToDelete, cfg.Subdir)
 	}
-	// delete every package previously injected by us that doesn't match the current injection parameters
 	prr.Spec.Resources = deleteSubDirs(subdirsToDelete, prr.Spec.Resources)
 
-	if !injectionDone {
-		// Fetch the package to inject
-		prs := utils.PackageRevisionsFromContextOrDie(ctx)
-		prToInject := prs.OfPackage(cfg.Repo, cfg.Package).Revision(cfg.Revision)
-		if prToInject == nil {
-			return fmt.Errorf("couldn't find package revision to inject: %v/%v/%v", cfg.Repo, cfg.Package, cfg.Revision)
-		}
-		if !porchapi.LifecycleIsPublished(prToInject.Spec.Lifecycle) {
-			return fmt.Errorf("package revision to inject (%v/%v/%v) must be published, but it's lifecycle state is %s", cfg.Repo, cfg.Package, cfg.Revision, prToInject.Spec.Lifecycle)
-		}
+	// quit if we have nothing left to do
+	if injectionDone {
+		return nil
+	}
 
-		// Load the PackageRevisionResources of the PR to inject
-		var prrToInject porchapi.PackageRevisionResources
-		if err := m.client.Get(ctx, client.ObjectKeyFromObject(prToInject), &prrToInject); err != nil {
-			return fmt.Errorf("couldn't read the package revision that should be inserted (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
-		}
+	// Fetch the package to inject
+	prToInject := prs.OfPackage(cfg.Repo, cfg.Package).Revision(cfg.Revision)
+	if prToInject == nil {
+		return fmt.Errorf("couldn't find package revision to inject: %v/%v/%v", cfg.Repo, cfg.Package, cfg.Revision)
+	}
+	if !porchapi.LifecycleIsPublished(prToInject.Spec.Lifecycle) {
+		return fmt.Errorf("package revision to inject (%v/%v/%v) must be published, but it's lifecycle state is %s", cfg.Repo, cfg.Package, cfg.Revision, prToInject.Spec.Lifecycle)
+	}
 
-		// Inject the resources
-		kptfileFound := false
-		for filename, content := range prrToInject.Spec.Resources {
-			if filename == kptfileapi.KptFileName {
-				// register that we injected this package
-				kptfile, err := fn.ParseKubeObject([]byte(content))
-				if err != nil {
-					return fmt.Errorf("couldn't parse KptFile of package revision to be injected (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
-				}
-				kptfile.SetAnnotation(InjectedByResourceAnnotation, pvId)
-				kptfile.SetAnnotation(InjectedByMutationAnnotation, mutationId)
-				upstream := upstreamGit(cfg, &repo)
-				kptfile.SetNestedString(upstream.Repo, "upstream", "git", "repo")
-				kptfile.SetNestedString(upstream.Directory, "upstream", "git", "directory")
-				kptfile.SetNestedString(upstream.Ref, "upstream", "git", "ref")
-				content = kptfile.String()
-				kptfileFound = true
+	// Load the PackageRevisionResources of the PR to inject
+	var prrToInject porchapi.PackageRevisionResources
+	if err := m.client.Get(ctx, client.ObjectKeyFromObject(prToInject), &prrToInject); err != nil {
+		return fmt.Errorf("couldn't read the package revision that should be inserted (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
+	}
+
+	// Inject the resources
+	kptfileFound := false
+	for filename, content := range prrToInject.Spec.Resources {
+		if filename == kptfileapi.KptFileName {
+			// register that we injected this package
+			kptfile, err := fn.ParseKubeObject([]byte(content))
+			if err != nil {
+				return fmt.Errorf("couldn't parse KptFile of package revision to be injected (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
 			}
-			prr.Spec.Resources[cfg.Subdir+"/"+filename] = content
+			kptfile.SetAnnotation(InjectedByResourceAnnotation, m.pvKey.String())
+			kptfile.SetAnnotation(InjectedByMutationAnnotation, m.mutation.Id())
+			upstream := upstreamGit(&cfg, &repo)
+			kptfile.SetNestedString(upstream.Repo, "upstream", "git", "repo")
+			kptfile.SetNestedString(upstream.Directory, "upstream", "git", "directory")
+			kptfile.SetNestedString(upstream.Ref, "upstream", "git", "ref")
+			content = kptfile.String()
+			kptfileFound = true
 		}
-		if !kptfileFound {
-			return fmt.Errorf("couldn't find KptFile in the package revision to be injected (%s/%s/%s)", cfg.Repo, cfg.Package, cfg.Revision)
-		}
+		prr.Spec.Resources[cfg.Subdir+"/"+filename] = content
+	}
+	if !kptfileFound {
+		return fmt.Errorf("couldn't find KptFile in the package revision to be injected (%s/%s/%s)", cfg.Repo, cfg.Package, cfg.Revision)
 	}
 	return nil
 }

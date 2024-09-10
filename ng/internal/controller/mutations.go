@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -30,34 +31,35 @@ import (
 	kptfileapi "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 )
 
-const (
-	InjectedByResourceAnnotation = "PackageVariant.porch.kpt.dev/injected-by-resource"
-	InjectedByMutationAnnotation = "PackageVariant.porch.kpt.dev/injected-by-mutation"
+var (
+	InjectedByResourceAnnotation = api.PackageVariantGVK.Kind + "." + api.PackageVariantGVK.Group + "/injected-by-resource"
+	InjectedByMutationAnnotation = api.PackageVariantGVK.Kind + "." + api.PackageVariantGVK.Group + "/injected-by-mutation"
 )
 
 type mutator interface {
-	// Apply applies the mutation to the KRM resources in prr
+	// Apply applies the mutation to the `prr`
 	Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error
 }
 
-func ensureMutations(ctx context.Context, client client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources) error {
-	// Check if there are any mutations specified in the PackageVariant
+// ensureMutations applies mutations specified in the PackageVariant to the PackageRevisionResources
+// NOTE: this is not a member of the Reconciler for easier unit testing
+func ensureMutations(ctx context.Context, cl client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources) error {
+	l := log.FromContext(ctx)
 	for _, mutation := range pv.Spec.Mutations {
-
 		// map Mutation API object to a mutator
 		var mutator mutator
 		switch mutation.Type {
-		case api.MutationTypeInjectPackageRevision:
-			if mutation.InjectPackageRevision == nil {
-				return fmt.Errorf("mutation type %s requires a non-empty InjectPackage field", api.MutationTypeInjectPackageRevision)
-			}
+		case api.MutationTypeInjectPackageRevision, api.MutationTypeInjectLatestPackageRevision:
 			mutator = &injectPR{
 				mutation: &mutation,
-				client:   client,
-				pv:       pv,
+				client:   cl,
+				pvKey:    client.ObjectKeyFromObject(pv),
 			}
+		case api.MutationTypePrependPipeline, api.MutationTypeInjectObject:
+			// handled elsewhere
+
 		default:
-			return fmt.Errorf("unsupported mutation type: %s", mutation.Type)
+			l.Info("TODO: unsupported mutation type: %s", mutation.Type)
 		}
 
 		// apply mutation
@@ -73,11 +75,11 @@ func ensureMutations(ctx context.Context, client client.Client, pv *api.PackageV
 // Remove any sub-packages that was injected by this PackageVariant, but by a mutation that no longer exists
 func cleanUpOrphanedSubPackages(ctx context.Context, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources) error {
 	l := log.FromContext(ctx)
-	pvId := fmt.Sprintf("%s/%s", pv.Namespace, pv.Name)
-	existingMutationIds := make([]string, 0)
+	existingMutationIds := sets.NewString()
 	for _, m := range pv.Spec.Mutations {
-		if m.Type == api.MutationTypeInjectPackageRevision {
-			existingMutationIds = append(existingMutationIds, fmt.Sprintf("%s/%s", m.Manager, m.Name))
+		if m.Type == api.MutationTypeInjectPackageRevision ||
+			m.Type == api.MutationTypeInjectLatestPackageRevision {
+			existingMutationIds.Insert(m.Id())
 		}
 	}
 
@@ -88,20 +90,13 @@ func cleanUpOrphanedSubPackages(ctx context.Context, pv *api.PackageVariant, prr
 	kptfilesInjectedByUs := kobjs.
 		Where(fn.IsGroupKind(kptfileapi.KptFileGVK().GroupKind())).
 		Where(fn.HasAnnotations(map[string]string{
-			InjectedByResourceAnnotation: pvId,
+			InjectedByResourceAnnotation: client.ObjectKeyFromObject(pv).String(),
 		}))
 
-	subdirsToDelete := make([]string, 0)
+	subdirsToDelete := []string{}
 	for _, kptfile := range kptfilesInjectedByUs {
 		mutationId := kptfile.GetAnnotation(InjectedByMutationAnnotation)
-		orphan := true
-		for _, existingMutationId := range existingMutationIds {
-			if mutationId == existingMutationId {
-				orphan = false
-				break
-			}
-		}
-		if orphan {
+		if !existingMutationIds.Has(mutationId) {
 			if !strings.Contains(kptfile.PathAnnotation(), "/") {
 				l.Info("WARNING: KptFile resource injected by packagevariant has no / in its path annotation")
 				continue
@@ -109,12 +104,12 @@ func cleanUpOrphanedSubPackages(ctx context.Context, pv *api.PackageVariant, prr
 			subdirsToDelete = append(subdirsToDelete, filepath.Dir(kptfile.PathAnnotation()))
 		}
 	}
-
-	// delete every package previously injected by us that doesn't match the current injection parameters
 	prr.Spec.Resources = deleteSubDirs(subdirsToDelete, prr.Spec.Resources)
 	return nil
 }
 
+// deleteSubDirs removes all resources that are in any of the subdirectories specified in `subdirsToDelete`
+// and returns with the result
 func deleteSubDirs(subdirsToDelete []string, resources map[string]string) map[string]string {
 	newResources := make(map[string]string)
 	for filename, content := range resources {

@@ -74,24 +74,11 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 	l := log.FromContext(ctx)
-	l.Info(fmt.Sprintf("reconciling package variant %q", req))
+	l.Info("reconciliation called")
 	ctx = utils.WithPackageRevisions(ctx, utils.PackageRevisions(prList.Items))
 
 	defer func() {
-		statusErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			// Update the status of the PackageVariant object
-			// get the PV again, since we may have modified it (e.g. by adding a finalizer)
-			var newPV api.PackageVariant
-			statusErr2 := r.Client.Get(ctx, req.NamespacedName, &newPV)
-			if statusErr2 != nil {
-				return client.IgnoreNotFound(statusErr2)
-			}
-			if reflect.DeepEqual(newPV.Status, pv.Status) {
-				return nil
-			}
-			newPV.Status = pv.Status
-			return r.Client.Status().Update(ctx, &newPV)
-		})
+		statusErr := r.UpdateStatus(ctx, pv)
 		if statusErr != nil {
 			if err == nil {
 				err = fmt.Errorf("couldn't update status: %w", statusErr)
@@ -182,6 +169,24 @@ func (r *PackageVariantReconciler) init(ctx context.Context,
 	return &pv, &prList, nil
 }
 
+func (r *PackageVariantReconciler) UpdateStatus(ctx context.Context, pv *api.PackageVariant) error {
+	// NOTE: using server-side apply here would automatically trigger a new Reconcile call (and then another, ...)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Update the status of the PackageVariant object
+		// get the PV again, since we may have modified it (e.g. by adding a finalizer)
+		var newPV api.PackageVariant
+		err := r.Client.Get(ctx, client.ObjectKeyFromObject(pv), &newPV)
+		if err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if reflect.DeepEqual(newPV.Status, pv.Status) {
+			return nil
+		}
+		newPV.Status = pv.Status
+		return r.Client.Status().Update(ctx, &newPV)
+	})
+}
+
 func validatePackageVariant(pv *api.PackageVariant) []string {
 	var allErrs []string
 	if pv.Spec.AdoptionPolicy == "" {
@@ -211,7 +216,7 @@ func combineErrors(errs []string) string {
 	return strings.Join(errMsgs, "; ")
 }
 
-func (r *PackageVariantReconciler) getUpstreamPR(upstream *api.Upstream,
+func (r *PackageVariantReconciler) getUpstreamPR(upstream *api.PackageRevisionRef,
 	prList *porchapi.PackageRevisionList) (*porchapi.PackageRevision, error) {
 	for _, pr := range prList.Items {
 		if pr.Spec.RepositoryName == upstream.Repo &&
@@ -710,11 +715,19 @@ func isPrAndPvRelated(pr *porchapi.PackageRevision, pv *api.PackageVariant) bool
 		pv.Spec.Upstream.Revision == pr.Spec.Revision {
 		return true
 	}
-	// if pv.Spec.Downstream.Repo == pr.Spec.RepositoryName &&
-	// 	pv.Spec.Downstream.Package == pr.Spec.PackageName {
-	// 	return true
-	// }
-
+	if pv.Spec.Downstream.Repo == pr.Spec.RepositoryName &&
+		pv.Spec.Downstream.Package == pr.Spec.PackageName {
+		return true
+	}
+	for _, mutation := range pv.Spec.Mutations {
+		switch mutation.Type {
+		case api.MutationTypeInjectLatestPackageRevision:
+			if pr.Spec.RepositoryName == mutation.InjectLatestPackageRevision.Repo &&
+				pr.Spec.PackageName == mutation.InjectLatestPackageRevision.Package {
+				return true
+			}
+		}
+	}
 	return false
 }
 

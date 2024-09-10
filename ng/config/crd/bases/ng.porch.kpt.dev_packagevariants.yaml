@@ -310,6 +310,21 @@ spec:
                             type: object
                           type: array
                       type: object
+                    injectLatestPackageRevision:
+                      description: Data for "InjectLatestPackageRevision" type
+                      properties:
+                        package:
+                          type: string
+                        repo:
+                          type: string
+                        subdir:
+                          description: The path within the downstream package to insert
+                            the package.
+                          type: string
+                      required:
+                      - package
+                      - repo
+                      type: object
                     injectObject:
                       description: Data for "AppendPipeline" type
                       properties:
@@ -593,6 +608,7 @@ spec:
                       description: Type selector enum for the union type
                       enum:
                       - InjectPackageRevision
+                      - InjectLatestPackageRevision
                       - InjectObject
                       - PrependPipeline
                       - AppendPipeline
@@ -604,6 +620,9 @@ spec:
                   x-kubernetes-validations:
                   - message: injectPackageRevision field is mandatory if type == InjectPackageRevision
                     rule: self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)
+                  - message: injectLatestPackageRevision field is mandatory if type
+                      == InjectLatestPackageRevision
+                    rule: self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)
                   - message: injectObject field is mandatory if type == InjectObject
                     rule: self.type != 'InjectObject' || has(self.injectObject)
                   - message: prependPipeline field is mandatory if type == PrependPipeline

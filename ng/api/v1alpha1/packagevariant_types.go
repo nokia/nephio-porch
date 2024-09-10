@@ -68,9 +68,9 @@ const (
 // PackageVariantSpec defines the desired state of PackageVariant
 type PackageVariantSpec struct {
 	//+required
-	Upstream Upstream `json:"upstream,omitempty"`
+	Upstream PackageRevisionRef `json:"upstream,omitempty"`
 	//+required
-	Downstream Downstream `json:"downstream,omitempty"`
+	Downstream PackageRef `json:"downstream,omitempty"`
 
 	//+default="adoptNone"
 	//+kubebuilder:validation:Enum=adoptExisting;adoptNone
@@ -111,6 +111,7 @@ const (
 
 // A mutation that should be applied to the downstream package
 // +kubebuilder:validation:XValidation:message="injectPackageRevision field is mandatory if type == InjectPackageRevision",rule="self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)"
+// +kubebuilder:validation:XValidation:message="injectLatestPackageRevision field is mandatory if type == InjectLatestPackageRevision",rule="self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)"
 // +kubebuilder:validation:XValidation:message="injectObject field is mandatory if type == InjectObject",rule="self.type != 'InjectObject' || has(self.injectObject)"
 // +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
 // +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
@@ -123,10 +124,12 @@ type Mutation struct {
 	Manager string `json:"manager,omitempty"`
 	// Type selector enum for the union type
 	//+required
-	//+kubebuilder:validation:Enum=InjectPackageRevision;InjectObject;PrependPipeline;AppendPipeline
+	//+kubebuilder:validation:Enum=InjectPackageRevision;InjectLatestPackageRevision;InjectObject;PrependPipeline;AppendPipeline
 	Type MutationType `json:"type,omitempty"`
 	// Data for "InjectPackageRevision" type
 	InjectPackageRevision *InjectPackageRevision `json:"injectPackageRevision,omitempty"`
+	// Data for "InjectLatestPackageRevision" type
+	InjectLatestPackageRevision *InjectLatestPackageRevision `json:"injectLatestPackageRevision,omitempty"`
 	// Data for "AppendPipeline" type
 	InjectObject *InjectObject `json:"injectObject,omitempty"`
 	// Data for "PrependPipeline" type
@@ -137,12 +140,19 @@ type Mutation struct {
 
 type InjectPackageRevision struct {
 	// The package revision to be inserted into the downstream package.
-	Upstream `json:",inline"`
+	PackageRevisionRef `json:",inline"`
 	// The path within the downstream package to insert the package.
 	Subdir string `json:"subdir,omitempty"`
 }
 
-type Upstream struct {
+type InjectLatestPackageRevision struct {
+	// The package revision to be inserted into the downstream package.
+	PackageRef `json:",inline"`
+	// The path within the downstream package to insert the package.
+	Subdir string `json:"subdir,omitempty"`
+}
+
+type PackageRevisionRef struct {
 	//+required
 	Repo string `json:"repo,omitempty"`
 	//+required
@@ -151,7 +161,7 @@ type Upstream struct {
 	Revision string `json:"revision,omitempty"`
 }
 
-type Downstream struct {
+type PackageRef struct {
 	//+required
 	Repo string `json:"repo,omitempty"`
 	//+required
@@ -200,3 +210,11 @@ type PackageVariantList struct {
 func init() {
 	SchemeBuilder.Register(&PackageVariant{}, &PackageVariantList{})
 }
+
+func (m *Mutation) Id() string {
+	return m.Manager + "/" + m.Name
+}
+
+var (
+	PackageVariantGVK = GroupVersion.WithKind("PackageVariant")
+)

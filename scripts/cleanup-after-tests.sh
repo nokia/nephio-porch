@@ -5,8 +5,11 @@ set -u # Must predefine variables
 set -o pipefail # Check errors in piped commands
 self_dir="$(dirname "$(readlink -f "$0")")"
 
+echo "Delete cache"
 rm -rf "$self_dir/../.cache"
 
+echo "Delete PackageRev finalizers"
 kubectl get packagerev -A --no-headers | awk '{ print "-n", $1, $2 }' | xargs -L 1 --no-run-if-empty kubectl patch packagerev --type='json' -p='[{"op": "remove", "path": "/metadata/finalizers"}]'
 
+echo "Delete namsespaces"
 kubectl get ns -o name --no-headers | egrep '(test|rpkg-|repo-)' | xargs -L 1 --no-run-if-empty kubectl delete
