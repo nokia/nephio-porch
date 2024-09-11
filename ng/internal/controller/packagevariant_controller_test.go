@@ -21,13 +21,19 @@ import (
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
+	"github.com/nephio-project/porch/ng/internal/utils"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
 )
 
 var (
 	pvBase = api.PackageVariant{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: api.GroupVersion.Identifier(),
+			Kind:       api.PackageVariantGVK.Kind,
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pv",
 			Namespace: "my-ns",
@@ -48,7 +54,7 @@ var (
 )
 
 func TestValidatePackageVariant(t *testing.T) {
-	packageVariantHeader := `apiVersion: config.porch.kpt.dev
+	packageVariantHeader := `apiVersion: ng.porch.kpt.dev/v1alpha1
 kind: PackageVariant
 metadata:
   name: my-pv`
@@ -205,7 +211,8 @@ items:
 		t.Run(tn, func(t *testing.T) {
 			var prList porchapi.PackageRevisionList
 			require.NoError(t, yaml.Unmarshal([]byte(tc.packageRevisionList), &prList))
-			actual := string(newWorkspaceName(&prList, "", ""))
+			ctx := utils.WithPackageRevisions(context.TODO(), utils.PackageRevisions(prList.Items))
+			actual := string(newWorkspaceName(ctx, "", ""))
 			require.Equal(t, tc.expected, actual)
 		})
 	}
@@ -217,30 +224,41 @@ kind: PackageRevisionList
 metadata:
   name: my-pr-list`
 
-	pvStr := `apiVersion: config.porch.kpt.dev
-kind: PackageVariant
-metadata:
-  name: my-pv
-  uid: pv-uid
-spec: 
-  upstream:
-    repo: blueprints
-    package: foo
-    revision: v1
-  downstream:
-    repo: deployments
-    package: bar`
-
 	testCases := map[string]struct {
 		packageRevisionList string
 		expected            []string
-		fcOutput            []string
+		clientOutput        []string
 	}{
 
 		// should return nil
 		"empty list": {
 			packageRevisionList: prListHeader,
-			expected:            nil,
+			expected: []string{`apiVersion: porch.kpt.dev/v1alpha1
+kind: PackageRevision
+metadata:
+  creationTimestamp: null
+  namespace: my-ns
+  ownerReferences:
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
+    controller: true
+    kind: PackageVariant
+    name: my-pv
+    uid: pv-uid
+spec:
+  packageName: bar
+  repository: deployments
+  tasks:
+  - clone:
+      upstreamRef:
+        upstreamRef:
+          name: upstream-1234
+    type: clone
+  workspaceName: packagevariant-1
+status:
+  publishTimestamp: null
+`,
+			},
+			clientOutput: []string{"creating object: "},
 		},
 
 		// should return the draft that we own
@@ -252,7 +270,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -276,7 +294,7 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -300,7 +318,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -315,7 +333,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -329,7 +347,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -344,7 +362,7 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -361,7 +379,7 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -385,7 +403,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -400,7 +418,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -415,12 +433,12 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: some-other-uid-1
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: some-other-uid-2
@@ -436,7 +454,7 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -461,7 +479,7 @@ items:
   metadata:
     name: my-pr
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -476,7 +494,7 @@ items:
   metadata:
     name: my-pr-2
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -490,7 +508,7 @@ items:
   metadata:
     name: my-pr-3
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -499,14 +517,14 @@ items:
     lifecycle: Draft
     repository: deployments
     packageName: foo`,
-			fcOutput: []string{`deleting object: my-pr-2`, `deleting object: my-pr-3`},
+			clientOutput: []string{`deleting object: my-pr-2`, `deleting object: my-pr-3`},
 			expected: []string{`apiVersion: porch.kpt.dev
 kind: PackageRevision
 metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -523,8 +541,7 @@ status:
 		},
 	}
 
-	var pv api.PackageVariant
-	require.NoError(t, yaml.Unmarshal([]byte(pvStr), &pv))
+	pv := pvBase.DeepCopy()
 
 	for tn, tc := range testCases {
 		t.Run(tn, func(t *testing.T) {
@@ -534,7 +551,8 @@ status:
 			fc := &fakeClient{}
 			reconciler := &PackageVariantReconciler{Client: fc}
 
-			actualStr := reconciler.getDownstreamPRs(context.TODO(), &pv, &prList)
+			ctx := utils.WithPackageRevisions(context.TODO(), utils.PackageRevisions(prList.Items))
+			actualStr, _ := reconciler.getDownstreamPRs(ctx, pv, types.NamespacedName{Namespace: pv.Namespace, Name: "upstream-1234"})
 			var actual []string
 			for _, pr := range actualStr {
 				bytes, err := yaml.Marshal(pr)
@@ -543,7 +561,7 @@ status:
 			}
 
 			require.Equal(t, tc.expected, actual)
-			require.Equal(t, tc.fcOutput, fc.output)
+			require.Equal(t, tc.clientOutput, fc.output)
 		})
 	}
 }
@@ -554,11 +572,11 @@ kind: PackageRevision
 metadata:
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: some-other-uid
@@ -568,21 +586,6 @@ spec:
   repository: deployments
   workspaceName: packagevariant-3
 `
-
-	pvStr := `apiVersion: config.porch.kpt.dev
-kind: PackageVariant
-metadata:
-  name: my-pv
-  uid: pv-uid
-spec: 
-  upstream:
-    repo: blueprints
-    package: foo
-    revision: v1
-  downstream:
-    repo: deployments
-    package: bar
-  deletionPolicy: %s`
 
 	testCases := map[string]struct {
 		deletionPolicy string
@@ -616,11 +619,11 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: some-other-uid
@@ -652,7 +655,7 @@ metadata:
   creationTimestamp: null
   name: my-pr
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: some-other-uid
@@ -669,9 +672,7 @@ status:
 
 	for tn, tc := range testCases {
 		t.Run(tn, func(t *testing.T) {
-			var pv api.PackageVariant
-			require.NoError(t, yaml.Unmarshal(
-				[]byte(fmt.Sprintf(pvStr, tc.deletionPolicy)), &pv))
+			pv := withDeletionPolicy(&pvBase, api.DeletionPolicy(tc.deletionPolicy))
 
 			var pr porchapi.PackageRevision
 			require.NoError(t, yaml.Unmarshal(
@@ -679,7 +680,7 @@ status:
 
 			fc := &fakeClient{}
 			reconciler := &PackageVariantReconciler{Client: fc}
-			reconciler.deleteOrOrphan(context.Background(), &pr, &pv)
+			reconciler.deleteOrOrphan(context.Background(), &pr, pv)
 
 			require.Equal(t, tc.expectedOutput, fc.output)
 
@@ -698,21 +699,6 @@ kind: PackageRevisionList
 metadata:
   name: my-pr-list`
 
-	pvStr := `apiVersion: config.porch.kpt.dev
-kind: PackageVariant
-metadata:
-  name: my-pv
-  uid: pv-uid
-spec: 
-  upstream:
-    repo: blueprints
-    package: foo
-    revision: v1
-  downstream:
-    repo: deployments
-    package: bar
-  adoptionPolicy: %s`
-
 	testCases := map[string]struct {
 		packageRevisionList string
 		adoptionPolicy      string
@@ -729,7 +715,7 @@ items:
   metadata:
     name: my-pr-1
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -756,7 +742,7 @@ metadata:
   creationTimestamp: null
   name: my-pr-2
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     controller: true
     kind: PackageVariant
     name: my-pv
@@ -781,7 +767,7 @@ items:
   metadata:
     name: my-pr-1
     ownerReferences:
-    - apiVersion: config.porch.kpt.dev
+    - apiVersion: ng.porch.kpt.dev/v1alpha1
       kind: PackageVariant
       name: my-pv
       uid: pv-uid
@@ -807,7 +793,7 @@ metadata:
   creationTimestamp: null
   name: my-pr-1
   ownerReferences:
-  - apiVersion: config.porch.kpt.dev
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
     kind: PackageVariant
     name: my-pv
     uid: pv-uid
@@ -838,8 +824,32 @@ items:
     packageName: foo
 `,
 			adoptionPolicy: string(api.AdoptionPolicyAdoptExisting),
-			clientOutput:   nil,
-			expected:       nil,
+			expected: []string{`apiVersion: porch.kpt.dev/v1alpha1
+kind: PackageRevision
+metadata:
+  creationTimestamp: null
+  namespace: my-ns
+  ownerReferences:
+  - apiVersion: ng.porch.kpt.dev/v1alpha1
+    controller: true
+    kind: PackageVariant
+    name: my-pv
+    uid: pv-uid
+spec:
+  packageName: bar
+  repository: deployments
+  tasks:
+  - clone:
+      upstreamRef:
+        upstreamRef:
+          name: upstream-1234
+    type: clone
+  workspaceName: packagevariant-1
+status:
+  publishTimestamp: null
+`,
+			},
+			clientOutput: []string{"creating object: "},
 		},
 	}
 
@@ -850,11 +860,10 @@ items:
 			var prList porchapi.PackageRevisionList
 			require.NoError(t, yaml.Unmarshal([]byte(tc.packageRevisionList), &prList))
 
-			var pv api.PackageVariant
-			require.NoError(t, yaml.Unmarshal(
-				[]byte(fmt.Sprintf(pvStr, tc.adoptionPolicy)), &pv))
+			pv := withAdoptionPolicy(&pvBase, api.AdoptionPolicy(tc.adoptionPolicy))
 
-			actualStr := reconciler.getDownstreamPRs(context.TODO(), &pv, &prList)
+			ctx := utils.WithPackageRevisions(context.TODO(), utils.PackageRevisions(prList.Items))
+			actualStr, _ := reconciler.getDownstreamPRs(ctx, pv, types.NamespacedName{Namespace: pv.Namespace, Name: "upstream-1234"})
 			var actual []string
 			for _, pr := range actualStr {
 				bytes, err := yaml.Marshal(pr)

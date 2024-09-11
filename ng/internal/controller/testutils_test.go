@@ -114,9 +114,21 @@ items:
 	return err
 }
 
-func withMutation(pv *api.PackageVariant, mutations ...api.Mutation) *api.PackageVariant {
+func withMutations(pv *api.PackageVariant, mutations ...api.Mutation) *api.PackageVariant {
 	pv = pv.DeepCopy()
 	pv.Spec.Mutations = append(pv.Spec.Mutations, mutations...)
+	return pv
+}
+
+func withAdoptionPolicy(pv *api.PackageVariant, policy api.AdoptionPolicy) *api.PackageVariant {
+	pv = pv.DeepCopy()
+	pv.Spec.AdoptionPolicy = policy
+	return pv
+}
+
+func withDeletionPolicy(pv *api.PackageVariant, policy api.DeletionPolicy) *api.PackageVariant {
+	pv = pv.DeepCopy()
+	pv.Spec.DeletionPolicy = policy
 	return pv
 }
 

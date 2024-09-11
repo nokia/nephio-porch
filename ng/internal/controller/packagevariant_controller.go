@@ -137,7 +137,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message: "all validation checks passed",
 	})
 
-	targets, err := r.ensurePackageVariant(ctx, pv, upstream, prList)
+	targets, err := r.ensurePackageVariant(ctx, pv, upstream)
 	if err != nil {
 		meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
 			Type:    api.ConditionTypeReady,
@@ -254,81 +254,19 @@ func setValidConditionToFalse(pv *api.PackageVariant, message string) {
 //     or a downgrade).
 //   - Delete or orphan other package revisions owned by this controller that are no
 //     longer needed.
-func (r *PackageVariantReconciler) ensurePackageVariant(ctx context.Context,
+func (r *PackageVariantReconciler) ensurePackageVariant(
+	ctx context.Context,
 	pv *api.PackageVariant,
-	upstream *porchapi.PackageRevision,
-	prList *porchapi.PackageRevisionList) ([]*porchapi.PackageRevision, error) {
-
-	existing, err := r.findAndUpdateExistingRevisions(ctx, pv, upstream, prList)
+	upstreamPR *porchapi.PackageRevision,
+) (
+	[]*porchapi.PackageRevision,
+	error,
+) {
+	downstreams, err := r.getDownstreamPRs(ctx, pv, client.ObjectKeyFromObject(upstreamPR))
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
-		return existing, nil
-	}
 
-	// No downstream package created by this controller exists. Create one.
-	newPR := &porchapi.PackageRevision{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "PackageRevision",
-			APIVersion: porchapi.SchemeGroupVersion.Identifier(),
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:       pv.Namespace,
-			OwnerReferences: []metav1.OwnerReference{constructOwnerReference(pv)},
-			Labels:          pv.Spec.Labels,
-			Annotations:     pv.Spec.Annotations,
-		},
-		Spec: porchapi.PackageRevisionSpec{
-			PackageName:    pv.Spec.Downstream.Package,
-			RepositoryName: pv.Spec.Downstream.Repo,
-			WorkspaceName:  newWorkspaceName(prList, pv.Spec.Downstream.Package, pv.Spec.Downstream.Repo),
-			Tasks: []porchapi.Task{
-				{
-					Type: porchapi.TaskTypeClone,
-					Clone: &porchapi.PackageCloneTaskSpec{
-						Upstream: porchapi.UpstreamPackage{
-							UpstreamRef: &porchapi.PackageRevisionRef{
-								Name: upstream.Name,
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	if err = r.Client.Create(ctx, newPR); err != nil {
-		return nil, err
-	}
-	klog.Infoln(fmt.Sprintf("package variant %q created package revision %q", pv.Name, newPR.Name))
-
-	prr, changed, mutationStatus, err := r.calculateDraftResources(ctx, pv, newPR)
-	if err != nil {
-		return nil, err
-	}
-	if changed {
-		// Save the updated PackageRevisionResources
-		if err = r.updatePackageResources(ctx, prr, pv, mutationStatus); err != nil {
-			return nil, err
-		}
-	}
-
-	return []*porchapi.PackageRevision{newPR}, nil
-}
-
-func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Context,
-	pv *api.PackageVariant,
-	upstream *porchapi.PackageRevision,
-	prList *porchapi.PackageRevisionList) ([]*porchapi.PackageRevision, error) {
-	downstreams := r.getDownstreamPRs(ctx, pv, prList)
-	if downstreams == nil {
-		// If there are no existing target downstream packages, just return nil. The
-		// caller will create one.
-		return nil, nil
-	}
-
-	var err error
 	for i, downstream := range downstreams {
 		if downstream.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
 			// We proposed this package revision for deletion in the past, but now it
@@ -347,19 +285,16 @@ func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Co
 			// we need to copy a published package to a new draft before updating
 			if porchapi.LifecycleIsPublished(downstream.Spec.Lifecycle) {
 				klog.Infoln(fmt.Sprintf("package variant %q needs to update package revision %q for new upstream revision, creating new draft", pv.Name, downstream.Name))
-				oldDS := downstream
-				downstream, err = r.copyPublished(ctx, downstream, pv, prList)
+				downstream, err = r.copyPublished(ctx, downstream, pv)
 				if err != nil {
-					klog.Errorf("package variant %q failed to copy %q: %s", pv.Name, oldDS.Name, err.Error())
 					return nil, err
 				}
-				klog.Infoln(fmt.Sprintf("package variant %q created %q based on %q", pv.Name, downstream.Name, oldDS.Name))
 			}
-			downstreams[i], err = r.updateDraft(ctx, downstream, upstream)
+			downstreams[i], err = r.updateDraft(ctx, downstream, upstreamPR)
 			if err != nil {
 				return nil, err
 			}
-			klog.Infoln(fmt.Sprintf("package variant %q updated package revision %q to upstream revision %s", pv.Name, downstream.Name, upstream.Spec.Revision))
+			klog.Infoln(fmt.Sprintf("package variant %q updated package revision %q to upstream revision %s", pv.Name, downstream.Name, upstreamPR.Spec.Revision))
 		}
 
 		// finally, see if any other changes are needed to the resources
@@ -373,14 +308,11 @@ func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Co
 			// if no pkg update was needed, we may still be a published package
 			// so, clone to a new Draft if that's the case
 			if porchapi.LifecycleIsPublished(downstream.Spec.Lifecycle) {
-				klog.Infoln(fmt.Sprintf("package variant %q needs to mutate to package revision %q, creating new draft", pv.Name, downstream.Name))
-				oldDS := downstream
-				downstream, err = r.copyPublished(ctx, downstream, pv, prList)
+
+				downstream, err = r.copyPublished(ctx, downstream, pv)
 				if err != nil {
-					klog.Errorf("package variant %q failed to copy %q: %s", pv.Name, oldDS.Name, err.Error())
 					return nil, err
 				}
-				klog.Infoln(fmt.Sprintf("package variant %q created %q based on %q", pv.Name, downstream.Name, oldDS.Name))
 				downstreams[i] = downstream
 				// recalculate from the new Draft
 				prr, _, mutationStatus, err = r.calculateDraftResources(ctx, pv, downstreams[i])
@@ -398,21 +330,26 @@ func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Co
 	return downstreams, nil
 }
 
-// If there are any drafts that are owned by us and match the target package
-// revision, return them all. If there are no drafts, return the latest published
-// package revision owned by us.
-func (r *PackageVariantReconciler) getDownstreamPRs(ctx context.Context,
+// If there are any drafts that are owned by us and match the target package revision, return them all.
+// If there are no drafts, return the latest published package revision owned by us.
+// If there are no drafts or published package revisions, create a new package revision.
+func (r *PackageVariantReconciler) getDownstreamPRs(
+	ctx context.Context,
 	pv *api.PackageVariant,
-	prList *porchapi.PackageRevisionList) []*porchapi.PackageRevision {
-	downstream := pv.Spec.Downstream
+	upstreamPrKey client.ObjectKey,
+) (
+	[]*porchapi.PackageRevision,
+	error,
+) {
+	l := log.FromContext(ctx)
 
-	var latestPublished *porchapi.PackageRevision
 	var drafts []*porchapi.PackageRevision
+	var latestPublished *porchapi.PackageRevision
 	// the first package revision number that porch assigns is "v1",
 	// so use v0 as a placeholder for comparison
 	latestVersion := "v0"
 
-	for _, pr := range prList.Items {
+	for _, pr := range utils.PackageRevisionsFromContextOrDie(ctx) {
 		// TODO: When we have a way to find the upstream packagerevision without
 		//   listing all packagerevisions, we should add a label to the resources we
 		//   own so that we can fetch only those packagerevisions. (A caveat here is
@@ -427,8 +364,8 @@ func (r *PackageVariantReconciler) getDownstreamPRs(ctx context.Context,
 		}
 
 		// check that the repo and package name match
-		if pr.Spec.RepositoryName != downstream.Repo ||
-			pr.Spec.PackageName != downstream.Package {
+		if pr.Spec.RepositoryName != pv.Spec.Downstream.Repo ||
+			pr.Spec.PackageName != pv.Spec.Downstream.Package {
 			if owned {
 				// We own this package, but it isn't a match for our downstream target,
 				// which means that we created it but no longer need it.
@@ -453,12 +390,51 @@ func (r *PackageVariantReconciler) getDownstreamPRs(ctx context.Context,
 	}
 
 	if len(drafts) > 0 {
-		return drafts
+		return drafts, nil
 	}
 	if latestPublished != nil {
-		return []*porchapi.PackageRevision{latestPublished}
+		return []*porchapi.PackageRevision{latestPublished}, nil
 	}
-	return nil
+
+	// No downstream package created by this controller exists. Create one.
+	readinessGates := pv.Spec.ReadinessGates
+	newPR := &porchapi.PackageRevision{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "PackageRevision",
+			APIVersion: porchapi.SchemeGroupVersion.Identifier(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:       pv.Namespace,
+			OwnerReferences: []metav1.OwnerReference{constructOwnerReference(pv)},
+			Labels:          pv.Spec.Labels,
+			Annotations:     pv.Spec.Annotations,
+		},
+		Spec: porchapi.PackageRevisionSpec{
+			ReadinessGates: readinessGates,
+			PackageName:    pv.Spec.Downstream.Package,
+			RepositoryName: pv.Spec.Downstream.Repo,
+			WorkspaceName:  newWorkspaceName(ctx, pv.Spec.Downstream.Package, pv.Spec.Downstream.Repo),
+			Tasks: []porchapi.Task{
+				{
+					Type: porchapi.TaskTypeClone,
+					Clone: &porchapi.PackageCloneTaskSpec{
+						Upstream: porchapi.UpstreamPackage{
+							UpstreamRef: &porchapi.PackageRevisionRef{
+								Name: upstreamPrKey.Name,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := r.Client.Create(ctx, newPR); err != nil {
+		return nil, err
+	}
+	l.Info(fmt.Sprintf("new package revision %q was created", newPR.Name))
+
+	return []*porchapi.PackageRevision{newPR}, nil
 }
 
 func compare(pr, latestPublished *porchapi.PackageRevision, latestVersion string) (*porchapi.PackageRevision, string) {
@@ -574,10 +550,16 @@ func (r *PackageVariantReconciler) isUpToDate(pv *api.PackageVariant, downstream
 	return currentUpstreamRevision == pv.Spec.Upstream.Revision
 }
 
-func (r *PackageVariantReconciler) copyPublished(ctx context.Context,
+func (r *PackageVariantReconciler) copyPublished(
+	ctx context.Context,
 	source *porchapi.PackageRevision,
 	pv *api.PackageVariant,
-	prList *porchapi.PackageRevisionList) (*porchapi.PackageRevision, error) {
+) (
+	*porchapi.PackageRevision,
+	error,
+) {
+	l := log.FromContext(ctx)
+	l.Info(fmt.Sprintf("Must mutate published package revision %q, creating new draft", source.Name))
 	newPR := &porchapi.PackageRevision{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "PackageRevision",
@@ -593,21 +575,24 @@ func (r *PackageVariantReconciler) copyPublished(ctx context.Context,
 	}
 
 	newPR.Spec.Revision = ""
-	newPR.Spec.WorkspaceName = newWorkspaceName(prList, newPR.Spec.PackageName, newPR.Spec.RepositoryName)
+	newPR.Spec.WorkspaceName = newWorkspaceName(ctx, newPR.Spec.PackageName, newPR.Spec.RepositoryName)
 	newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDraft
 
-	klog.Infoln(fmt.Sprintf("package variant %q is creating package revision %q", pv.Name, newPR.Name))
 	if err := r.Client.Create(ctx, newPR); err != nil {
+		l.Error(err, fmt.Sprintf("failed to copy %q", source.Name))
 		return nil, err
 	}
-
+	l.Info(fmt.Sprintf("created package revision %q based on %q", newPR.Name, source.Name))
 	return newPR, nil
 }
 
-func newWorkspaceName(prList *porchapi.PackageRevisionList,
-	packageName string, repo string) porchapi.WorkspaceName {
+func newWorkspaceName(
+	ctx context.Context,
+	packageName string,
+	repo string,
+) porchapi.WorkspaceName {
 	wsNum := 0
-	for _, pr := range prList.Items {
+	for _, pr := range utils.PackageRevisionsFromContextOrDie(ctx) {
 		if pr.Spec.PackageName != packageName || pr.Spec.RepositoryName != repo {
 			continue
 		}
@@ -761,7 +746,7 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 ) (
 	prr *porchapi.PackageRevisionResources, changed bool, mutationStatus []api.MutationStatus, err error,
 ) {
-
+	l := log.FromContext(ctx)
 	// Load the PackageRevisionResources
 	prr = &porchapi.PackageRevisionResources{}
 	prrKey := types.NamespacedName{Name: draft.GetName(), Namespace: draft.GetNamespace()}
@@ -789,38 +774,37 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 
 	if len(prr.Spec.Resources) != len(origResources) {
 		// files were added or deleted
-		klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %d original files, %d new files", pv.Name, prr.Name, len(origResources), len(prr.Spec.Resources)))
+		l.Info(fmt.Sprintf("PackageRevision %q changed: number of files: %d original files, %d new files", prr.Name, len(origResources), len(prr.Spec.Resources)))
 		return prr, true, mutationStatus, nil
 	}
 
-	for k, v := range origResources {
-		newValue, ok := prr.Spec.Resources[k]
+	for file, oldContent := range origResources {
+		newContent, ok := prr.Spec.Resources[file]
 		if !ok {
-			// a file was deleted
-			klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %q in original files, not in new files", pv.Name, prr.Name, k))
+			l.Info(fmt.Sprintf("PackageRevision %q changed: file %q was deleted", prr.Name, file))
 			return prr, true, mutationStatus, nil
 		}
 
-		if newValue != v {
+		if newContent != oldContent {
 			// HACK ALERT - TODO(jbelamaric): Fix this
 			// Currently nephio controllers and package variant controller are rendering Kptfiles slightly differently in YAML
 			// not sure why, need to investigate more. It may be due to different versions of kyaml. So, here, just for Kptfiles,
 			// we will parse and compare semantically.
 			//
-			if k == "Kptfile" && kptfilesEqual(v, newValue) {
-				klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: Kptfiles differ, but not semantically", pv.Name, prr.Name))
+			if file == "Kptfile" && kptfilesEqual(oldContent, newContent) {
+				l.Info(fmt.Sprintf("PackageRevision %q changed: Kptfiles differ, but not semantically", prr.Name))
 				continue
 			}
 
 			// a file was changed
-			klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %q different", pv.Name, prr.Name, k))
+			l.Info(fmt.Sprintf("PackageRevision %q changed: contents of file %q changed", prr.Name, file))
 			return prr, true, mutationStatus, nil
 		}
 	}
 
 	// all files in orig are in new, no new files, and all contents match
 	// so no change
-	klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources unchanged", pv.Name, prr.Name))
+	l.Info(fmt.Sprintf("PackageRevision %q: resources unchanged", prr.Name))
 	return prr, false, mutationStatus, nil
 }
 

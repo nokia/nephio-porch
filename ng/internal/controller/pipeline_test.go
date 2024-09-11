@@ -439,7 +439,7 @@ spec:
 			}
 			var prr porchapi.PackageRevisionResources
 			require.NoError(t, yaml.Unmarshal([]byte(locPrrBase+tc.initialPipeline), &prr))
-			pv := withMutation(&pvBase, tc.pvPipeline...)
+			pv := withMutations(&pvBase, tc.pvPipeline...)
 			_, actualErr := ensureMutations(context.TODO(), nil, pv, &prr)
 			if tc.expectedErr == "" {
 				require.NoError(t, actualErr)

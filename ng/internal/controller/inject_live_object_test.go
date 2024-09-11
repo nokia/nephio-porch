@@ -869,7 +869,7 @@ spec:
 	}
 	for tn, tc := range testCases {
 		t.Run(tn, func(t *testing.T) {
-			pv := withMutation(pvBase.DeepCopy(), tc.injectors...)
+			pv := withMutations(&pvBase, tc.injectors...)
 
 			var prr porchapi.PackageRevisionResources
 			require.NoError(t, yaml.Unmarshal([]byte(prrBase+baseKptfile+tc.injectionPoints), &prr))

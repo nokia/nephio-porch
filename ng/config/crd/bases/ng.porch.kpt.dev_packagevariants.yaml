@@ -640,8 +640,6 @@ spec:
                   properties:
                     conditionType:
                       type: string
-                  required:
-                  - conditionType
                   type: object
                 type: array
               serviceAccountName:

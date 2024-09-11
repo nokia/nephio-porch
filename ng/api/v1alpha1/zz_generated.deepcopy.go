@@ -21,6 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	porchv1alpha1 "github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -282,7 +283,7 @@ func (in *PackageVariantSpec) DeepCopyInto(out *PackageVariantSpec) {
 	out.Downstream = in.Downstream
 	if in.ReadinessGates != nil {
 		in, out := &in.ReadinessGates, &out.ReadinessGates
-		*out = make([]v1.ReadinessGate, len(*in))
+		*out = make([]porchv1alpha1.ReadinessGate, len(*in))
 		copy(*out, *in)
 	}
 	if in.Labels != nil {

@@ -83,7 +83,7 @@ type PackageVariantSpec struct {
 	//+kubebuilder:validation:Enum=never;always;initial;manualReadiness
 	ApprovalPolicy ApprovalPolicy `json:"approvalPolicy,omitempty"`
 	// Readiness gates added to downstream packages
-	ReadinessGates []kptfile.ReadinessGate `json:"readinessGates,omitempty"`
+	ReadinessGates []porchapi.ReadinessGate `json:"readinessGates,omitempty"`
 	// Labels added to downstream packages
 	Labels map[string]string `json:"labels,omitempty"`
 	// Annotations added to downstream packages
