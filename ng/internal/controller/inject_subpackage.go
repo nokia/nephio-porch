@@ -32,20 +32,26 @@ import (
 	kptfileapi "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 )
 
-// injectPR is a mutator that injects a whole package into the target package revision
-type injectPR struct {
+// injectSubPackage is a mutator that injects a sub-package into the target package revision.
+// It is used to implement the InjectPackageRevision and InjectLatestPackageRevision mutations.
+// It uses the KptFile of the injected sub-package to track who injected it and from which upstream source,
+// so it can recognize if the sub-package was already injected with the right parameters, without checking the file contents.
+// The InjectPackageRevision type mutation injects the sub-package once and allows changes to it afterwards.
+// The InjectLatestPackageRevision type mutation injects the latest sub-package revision and automatically re-injects it,
+// if a newer revision of the sub-package is published.
+type injectSubPackage struct {
 	mutation *api.Mutation
 	client   client.Client
 	pvKey    types.NamespacedName
 }
 
-var _ mutator = &injectPR{}
+var _ mutator = &injectSubPackage{}
 
-func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
+func (m *injectSubPackage) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
 	l := log.FromContext(ctx)
-
 	prs := utils.PackageRevisionsFromContextOrDie(ctx)
 
+	// get the parameters of injection
 	var cfg api.InjectPackageRevision
 	switch m.mutation.Type {
 	case api.MutationTypeInjectPackageRevision:
@@ -66,15 +72,15 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 		cfg.Subdir = cfg.Package
 	}
 
-	// get porch Repository of package to inject
+	// get the Repository of the sub-package to inject
 	var repo configapi.Repository
 	if err := m.client.Get(ctx, client.ObjectKey{Name: cfg.Repo, Namespace: m.pvKey.Namespace}, &repo); err != nil {
 		return fmt.Errorf("couldn't read Repository %q: %w", cfg.Repo, err)
 	}
 	if repo.Spec.Git == nil {
-		return fmt.Errorf("not supported mutation (%s): injecting package from repository %q that is not a Git repository", m.mutation.Id(), cfg.Repo)
+		return fmt.Errorf("injecting sub-packages is only supported from git repositories, but %q is not a Git repository", cfg.Repo)
 	}
-	// find sub-packages injected by us
+	// find sub-packages that was injected by us previously
 	kobjs, _, err := utils.ReadKubeObjects(prr.Spec.Resources)
 	if err != nil {
 		return fmt.Errorf("couldn't read KubeObjects from PackageRevisionResources %q: %w", client.ObjectKeyFromObject(prr), err)
@@ -86,7 +92,7 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 			InjectedByMutationAnnotation: m.mutation.Id(),
 		}))
 
-	// check if the sub-package was already injected with the same parameters
+	// check if a sub-package was already injected with the current parameters
 	injectionDone := false
 	subdirsToDelete := make([]string, 0)
 	for _, kptfile := range kptfilesInjectedByUs {
@@ -95,7 +101,7 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 			continue
 		}
 		if injectedBySameMutation(kptfile, &cfg, &repo) {
-			// we found a KptFile that we injected before, and matches with the required injection
+			// we found a KptFile that we injected before with the current parameters
 			injectionDone = true
 		} else {
 			// delete packages previously injected by us that doesn't match the current injection parameters
@@ -114,7 +120,7 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 		return nil
 	}
 
-	// Fetch the package to inject
+	// Fetch the sub-package to inject
 	prToInject := prs.OfPackage(cfg.Repo, cfg.Package).Revision(cfg.Revision)
 	if prToInject == nil {
 		return fmt.Errorf("couldn't find package revision to inject: %v/%v/%v", cfg.Repo, cfg.Package, cfg.Revision)
@@ -122,8 +128,9 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 	if !porchapi.LifecycleIsPublished(prToInject.Spec.Lifecycle) {
 		return fmt.Errorf("package revision to inject (%v/%v/%v) must be published, but it's lifecycle state is %s", cfg.Repo, cfg.Package, cfg.Revision, prToInject.Spec.Lifecycle)
 	}
-
-	// Load the PackageRevisionResources of the PR to inject
+	if prToInject.Spec.Revision == repo.Spec.Git.Branch {
+		return fmt.Errorf("injecting the %q revision is deliberately not supported", repo.Spec.Git.Branch)
+	}
 	var prrToInject porchapi.PackageRevisionResources
 	if err := m.client.Get(ctx, client.ObjectKeyFromObject(prToInject), &prrToInject); err != nil {
 		return fmt.Errorf("couldn't read the package revision that should be inserted (%s/%s/%s): %w", cfg.Repo, cfg.Package, cfg.Revision, err)
@@ -155,7 +162,8 @@ func (m *injectPR) Apply(ctx context.Context, prr *porchapi.PackageRevisionResou
 	return nil
 }
 
-// injectedBySameMutation checks if the sub-package of the given KptFile was injected by a mutation with the same parameters as the given cfg
+// injectedBySameMutation checks if the sub-package of the given KptFile was injected
+// by a mutation with the same parameters as `cfg`
 func injectedBySameMutation(kptfile *fn.KubeObject, cfg *api.InjectPackageRevision, repo *configapi.Repository) bool {
 	expectedUpstream := upstreamGit(cfg, repo)
 	if cfg.Subdir != filepath.Dir(kptfile.PathAnnotation()) {

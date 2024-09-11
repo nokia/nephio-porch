@@ -197,6 +197,14 @@ type PackageVariantStatus struct {
 type DownstreamTarget struct {
 	Name         string                `json:"name,omitempty"`
 	RenderStatus porchapi.RenderStatus `json:"renderStatus,omitempty"`
+	Mutations    []MutationStatus      `json:"mutations,omitempty"`
+}
+
+type MutationStatus struct {
+	Name    string `json:"name"`
+	Manager string `json:"manager,omitempty"`
+	Applied bool   `json:"applied"`
+	Message string `json:"message,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -30,8 +29,9 @@ import (
 var (
 	pvBase = api.PackageVariant{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "my-pv",
-			UID:  "pv-uid",
+			Name:      "my-pv",
+			Namespace: "my-ns",
+			UID:       "pv-uid",
 		},
 		Spec: api.PackageVariantSpec{
 			Upstream: api.PackageRevisionRef{
@@ -864,95 +864,6 @@ items:
 
 			require.Equal(t, tc.expected, actual)
 			require.Equal(t, tc.clientOutput, fc.output)
-		})
-	}
-}
-
-func TestGeneratePVFuncName(t *testing.T) {
-	tt := map[string]struct {
-		funcName     string
-		pvName       string
-		pos          int
-		expectedName string
-	}{
-		"regular func": {
-			funcName:     "my-func",
-			pvName:       "my-pv",
-			pos:          3,
-			expectedName: "PackageVariant.my-pv.my-func.3",
-		},
-		"empty func name": {
-			funcName:     "",
-			pvName:       "my-pv",
-			pos:          0,
-			expectedName: "PackageVariant.my-pv..0",
-		},
-	}
-
-	for name, tc := range tt {
-		t.Run(name, func(t *testing.T) {
-			res := generatePVFuncName(tc.funcName, tc.pvName, tc.pos)
-
-			require.Equal(t, tc.expectedName, res)
-		})
-	}
-}
-
-func TestIsPackageVariantFunc(t *testing.T) {
-	tt := map[string]struct {
-		funcyaml    string
-		pvName      string
-		expectedRes bool
-	}{
-		"valid func name": {
-			funcyaml:    "name: PackageVariant.my-pv.my-func.0",
-			pvName:      "my-pv",
-			expectedRes: true,
-		},
-		"field name is missing": {
-			funcyaml:    "otherkey: PackageVariant.my-pv.my-func.0",
-			pvName:      "my-pv",
-			expectedRes: false,
-		},
-		"additional dots": {
-			funcyaml:    "name: PackageVariant.too.many.dots.0",
-			pvName:      "too",
-			expectedRes: false,
-		},
-		"not enough dots": {
-			funcyaml:    "name: PackageVariant.not-enough.dots",
-			pvName:      "not-enough",
-			expectedRes: false,
-		},
-		"no PackageVariantPrefix": {
-			funcyaml:    "name: noprefix.my-pv.my-func.0",
-			pvName:      "my-pv",
-			expectedRes: false,
-		},
-		"pv-name mismatch": {
-			funcyaml:    "name: PackageVariant.my-pv.my-func.0",
-			pvName:      "actually-a-different-pv",
-			expectedRes: false,
-		},
-		"empty func name": {
-			funcyaml:    "name: PackageVariant.my-pv..0",
-			pvName:      "my-pv",
-			expectedRes: true,
-		},
-		"positional location is not an int": {
-			funcyaml:    "name: PackageVariant.my-pv.my-func.str",
-			pvName:      "my-pv",
-			expectedRes: false,
-		},
-	}
-
-	for name, tc := range tt {
-		t.Run(name, func(t *testing.T) {
-			o, err := fn.ParseKubeObject([]byte(tc.funcyaml))
-			require.NoError(t, err)
-			res, _ := isPackageVariantFunc(&o.SubObject, tc.pvName)
-
-			require.Equal(t, tc.expectedRes, res)
 		})
 	}
 }

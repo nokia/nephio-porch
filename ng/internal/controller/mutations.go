@@ -43,37 +43,107 @@ type mutator interface {
 
 // ensureMutations applies mutations specified in the PackageVariant to the PackageRevisionResources
 // NOTE: this is not a member of the Reconciler for easier unit testing
-func ensureMutations(ctx context.Context, cl client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources) error {
+func ensureMutations(
+	ctx context.Context, cl client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources,
+) (
+	mutationStatus []api.MutationStatus, err error,
+) {
 	l := log.FromContext(ctx)
+
+	// Remove all KRM functions injected by us previously and later re-inject the ones that are still needed.
+	// This might change the YAML formatting of the injected functions, but that's fine since we're detecting Kptfiles changes
+	// by semantic comparison (as opposed to comparing YAML representations)
+	removeAllKrmFunctionsInjectedByUs(prr, client.ObjectKeyFromObject(pv))
+
 	errors := make([]string, 0)
-	for _, mutation := range pv.Spec.Mutations {
+	mutationStatus = make([]api.MutationStatus, len(pv.Spec.Mutations))
+	for i, mutation := range pv.Spec.Mutations {
 		// map Mutation API object to a mutator
 		var mutator mutator
 		switch mutation.Type {
 		case api.MutationTypeInjectPackageRevision, api.MutationTypeInjectLatestPackageRevision:
-			mutator = &injectPR{
+			mutator = &injectSubPackage{
 				mutation: &mutation,
 				client:   cl,
 				pvKey:    client.ObjectKeyFromObject(pv),
 			}
-		case api.MutationTypePrependPipeline, api.MutationTypeInjectObject:
+
+		case api.MutationTypePrependPipeline, api.MutationTypeAppendPipeline:
+			mutator = &addToPipeline{
+				mutation: &mutation,
+				pvKey:    client.ObjectKeyFromObject(pv),
+			}
+
+		case api.MutationTypeInjectObject:
 			// handled elsewhere
+			continue
 
 		default:
 			l.Info("TODO: unsupported mutation type: %s", mutation.Type)
 		}
 
 		// apply mutation
-		err := mutator.Apply(ctx, prr)
-		if err != nil {
+		mutationStatus[i].Name = mutation.Name
+		mutationStatus[i].Manager = mutation.Manager
+		if err := mutator.Apply(ctx, prr); err != nil {
+			mutationStatus[i].Applied = false
+			mutationStatus[i].Message = err.Error()
 			errors = append(errors, mutation.Id()+": "+err.Error())
+		} else {
+			mutationStatus[i].Applied = true
 		}
-
 	}
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
 	if len(errors) > 0 {
-		return fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
+		err = fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
+		return
 	}
+	return
+}
+
+func pvPrefix(pvKey client.ObjectKey) string {
+	return fmt.Sprintf("%s/%s", api.PackageVariantGVK.GroupKind(), pvKey)
+}
+
+func removeAllKrmFunctionsInjectedByUs(prr *porchapi.PackageRevisionResources, pvKey client.ObjectKey) error {
+	kptfile, _ := getFileKubeObject(prr, kptfileapi.KptFileName, "", "")
+	if kptfile == nil {
+		return nil
+	}
+	pipelineObj := kptfile.GetMap("pipeline")
+	if pipelineObj == nil {
+		return nil
+	}
+	for _, fieldname := range []string{"validators", "mutators"} {
+		functions := pipelineObj.GetSlice(fieldname)
+		if functions == nil {
+			continue
+		}
+		var result = fn.SliceSubObjects{}
+		for _, function := range functions {
+			funcName := function.GetString("name")
+			if !strings.HasPrefix(funcName, pvPrefix(pvKey)+"/") {
+				result = append(result, function)
+			}
+		}
+		// if there are new mutators/validators, set them. Otherwise delete the field. This avoids ugly dangling `mutators: []` fields in the final kptfile
+		if len(result) > 0 {
+			if err := pipelineObj.SetSlice(result, fieldname); err != nil {
+				return err
+			}
+		} else {
+			if _, err := pipelineObj.RemoveNestedField(fieldname); err != nil {
+				return err
+			}
+		}
+	}
+	// if there are no mutators and no validators, remove the dangling pipeline field
+	if pipelineObj.GetSlice("mutators") == nil && pipelineObj.GetSlice("validators") == nil {
+		if _, err := kptfile.RemoveNestedField("pipeline"); err != nil {
+			return err
+		}
+	}
+	prr.Spec.Resources[kptfileapi.KptFileName] = kptfile.String()
 	return nil
 }
 

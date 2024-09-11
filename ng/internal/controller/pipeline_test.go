@@ -15,6 +15,7 @@
 package packagevariant
 
 import (
+	"context"
 	"testing"
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
@@ -65,6 +66,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
@@ -82,7 +84,7 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         mutators:
-        - name: PackageVariant.my-pv.set-namespace.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/set-namespace-0
           image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
             namespace: my-ns
@@ -106,6 +108,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
@@ -127,11 +130,11 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         mutators:
-        - name: PackageVariant.my-pv.set-namespace.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/set-namespace-0
           image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
             namespace: my-ns
-        - name: PackageVariant.my-pv.format.1
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/format-1
           image: gcr.io/kpt-fn/format:unstable
         - image: gcr.io/kpt-fn/set-labels:v0.1
           name: set-labels
@@ -146,6 +149,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
@@ -163,7 +167,7 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         mutators:
-        - name: PackageVariant.my-pv.set-namespace.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/set-namespace-0
           image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
             namespace: my-ns
@@ -204,6 +208,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
@@ -221,7 +226,7 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         mutators:
-        - name: PackageVariant.my-pv.set-namespace.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/set-namespace-0
           image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
             namespace: my-ns
@@ -242,6 +247,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
@@ -256,7 +262,7 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         validators:
-        - name: PackageVariant.my-pv.validate-name.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/validate-name-0
           image: gcr.io/kpt-fn/validate-name:undefined
         - image: gcr.io/kpt-fn/gatekeeper-validate:v0.1
           name: gatekeeper-validate
@@ -272,6 +278,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
@@ -286,7 +293,7 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         validators:
-        - name: PackageVariant.my-pv.validate-name.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/validate-name-0
           image: gcr.io/kpt-fn/validate-name:undefined
         - image: gcr.io/kpt-fn/gatekeeper-validate:v0.1
           name: gatekeeper-validate
@@ -321,6 +328,7 @@ spec:
 			pvPipeline: []api.Mutation{
 				{
 					Type: api.MutationTypePrependPipeline,
+					Name: "prepend-functions",
 					PrependPipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
@@ -349,18 +357,18 @@ spec:
 			expectedPrr: prrBase + `
       pipeline:
         validators:
-        - name: PackageVariant.my-pv.val3.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/val3-0
           image: gcr.io/val3
-        - name: PackageVariant.my-pv.val4.1
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/val4-1
           image: gcr.io/val4
         - image: gcr.io/val1
           name: val1
         - image: gcr.io/val2
           name: val2
         mutators:
-        - name: PackageVariant.my-pv.mut3.0
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/mut3-0
           image: gcr.io/mut3
-        - name: PackageVariant.my-pv.mut4.1
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/mut4-1
           image: gcr.io/mut4
         - image: gcr.io/mut1
           name: mut1
@@ -372,7 +380,7 @@ spec:
 			initialPipeline: `
         mutators:
         - image: gcr.io/mut:v1
-          name: PackageVariant.my-pv.mut.0`[1:],
+          name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/mut-0`[1:],
 			pvPipeline:  nil,
 			expectedErr: "",
 			expectedPrr: prrBase + "\n",
@@ -381,7 +389,7 @@ spec:
 			initialPipeline: `
         validators:
         - image: gcr.io/val:v1
-          name: PackageVariant.my-pv.val.0`[1:],
+          name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/val-0`[1:],
 			pvPipeline:  nil,
 			expectedErr: "",
 			expectedPrr: prrBase + "\n",
@@ -390,7 +398,7 @@ spec:
 			initialPipeline: `
         validators:
         - image: gcr.io/val:v1
-          name: PackageVariant.my-pv.val.0
+          name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//prepend-functions/val-0
         - image: gcr.io/val:v1
           name: non-pv-val`[1:],
 			pvPipeline:  nil,
@@ -413,7 +421,7 @@ spec:
 			var prr porchapi.PackageRevisionResources
 			require.NoError(t, yaml.Unmarshal([]byte(locPrrBase+tc.initialPipeline), &prr))
 			pv := withMutation(&pvBase, tc.pvPipeline...)
-			actualErr := ensureKRMFunctions(pv, &prr)
+			_, actualErr := ensureMutations(context.TODO(), nil, pv, &prr)
 			if tc.expectedErr == "" {
 				require.NoError(t, actualErr)
 			} else {
@@ -425,7 +433,7 @@ spec:
 			require.Equal(t, expectedPRR, prr)
 
 			// test idempotence
-			idemErr := ensureKRMFunctions(pv, &prr)
+			_, idemErr := ensureMutations(context.TODO(), nil, pv, &prr)
 			if tc.expectedErr == "" {
 				require.NoError(t, idemErr)
 			} else {

@@ -249,7 +249,7 @@ func setValidConditionToFalse(pv *api.PackageVariant, message string) {
 //   - If it does already exist, we need to make sure it is up-to-date. If there are
 //     downstream package drafts, we look at all drafts. Otherwise, we look at the latest
 //     published downstream package revision.
-//   - Compare pd.Spec.Upstream.Revision to the revision number that the downstream
+//   - Compare pv.Spec.Upstream.Revision to the revision number that the downstream
 //     package is based on. If it is different, we need to do an update (could be an upgrade
 //     or a downgrade).
 //   - Delete or orphan other package revisions owned by this controller that are no
@@ -303,13 +303,13 @@ func (r *PackageVariantReconciler) ensurePackageVariant(ctx context.Context,
 	}
 	klog.Infoln(fmt.Sprintf("package variant %q created package revision %q", pv.Name, newPR.Name))
 
-	prr, changed, err := r.calculateDraftResources(ctx, pv, newPR)
+	prr, changed, mutationStatus, err := r.calculateDraftResources(ctx, pv, newPR)
 	if err != nil {
 		return nil, err
 	}
 	if changed {
 		// Save the updated PackageRevisionResources
-		if err = r.updatePackageResources(ctx, prr, pv); err != nil {
+		if err = r.updatePackageResources(ctx, prr, pv, mutationStatus); err != nil {
 			return nil, err
 		}
 	}
@@ -363,7 +363,7 @@ func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Co
 		}
 
 		// finally, see if any other changes are needed to the resources
-		prr, changed, err := r.calculateDraftResources(ctx, pv, downstreams[i])
+		prr, changed, mutationStatus, err := r.calculateDraftResources(ctx, pv, downstreams[i])
 		if err != nil {
 			return nil, err
 		}
@@ -383,14 +383,14 @@ func (r *PackageVariantReconciler) findAndUpdateExistingRevisions(ctx context.Co
 				klog.Infoln(fmt.Sprintf("package variant %q created %q based on %q", pv.Name, downstream.Name, oldDS.Name))
 				downstreams[i] = downstream
 				// recalculate from the new Draft
-				prr, _, err = r.calculateDraftResources(ctx, pv, downstreams[i])
+				prr, _, mutationStatus, err = r.calculateDraftResources(ctx, pv, downstreams[i])
 				if err != nil {
 					return nil, err
 				}
 
 			}
 			// Save the updated PackageRevisionResources
-			if err := r.updatePackageResources(ctx, prr, pv); err != nil {
+			if err := r.updatePackageResources(ctx, prr, pv, mutationStatus); err != nil {
 				return nil, err
 			}
 		}
@@ -756,20 +756,22 @@ func mapObjectsToRequests(mgrClient client.Reader) handler.MapFunc {
 	}
 }
 
-func (r *PackageVariantReconciler) calculateDraftResources(ctx context.Context,
-	pv *api.PackageVariant,
-	draft *porchapi.PackageRevision) (*porchapi.PackageRevisionResources, bool, error) {
+func (r *PackageVariantReconciler) calculateDraftResources(
+	ctx context.Context, pv *api.PackageVariant, draft *porchapi.PackageRevision,
+) (
+	prr *porchapi.PackageRevisionResources, changed bool, mutationStatus []api.MutationStatus, err error,
+) {
 
 	// Load the PackageRevisionResources
-	var prr porchapi.PackageRevisionResources
+	prr = &porchapi.PackageRevisionResources{}
 	prrKey := types.NamespacedName{Name: draft.GetName(), Namespace: draft.GetNamespace()}
-	if err := r.Client.Get(ctx, prrKey, &prr); err != nil {
-		return nil, false, err
+	if err := r.Client.Get(ctx, prrKey, prr); err != nil {
+		return nil, false, mutationStatus, err
 	}
 
 	// Check if it's a valid PRR
 	if prr.Spec.Resources == nil {
-		return nil, false, fmt.Errorf("nil resources found for PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
+		return nil, false, nil, fmt.Errorf("nil resources found for PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
 	}
 
 	origResources := make(map[string]string, len(prr.Spec.Resources))
@@ -777,22 +779,18 @@ func (r *PackageVariantReconciler) calculateDraftResources(ctx context.Context,
 		origResources[k] = v
 	}
 
-	if err := ensureKRMFunctions(pv, &prr); err != nil {
-		return nil, false, err
+	if err := ensureConfigInjection(ctx, r.Client, pv, prr); err != nil {
+		return nil, false, nil, err
 	}
 
-	if err := ensureConfigInjection(ctx, r.Client, pv, &prr); err != nil {
-		return nil, false, err
-	}
-
-	if err := ensureMutations(ctx, r.Client, pv, &prr); err != nil {
-		return nil, false, err
+	if mutationStatus, err = ensureMutations(ctx, r.Client, pv, prr); err != nil {
+		return nil, false, mutationStatus, err
 	}
 
 	if len(prr.Spec.Resources) != len(origResources) {
 		// files were added or deleted
 		klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %d original files, %d new files", pv.Name, prr.Name, len(origResources), len(prr.Spec.Resources)))
-		return &prr, true, nil
+		return prr, true, mutationStatus, nil
 	}
 
 	for k, v := range origResources {
@@ -800,7 +798,7 @@ func (r *PackageVariantReconciler) calculateDraftResources(ctx context.Context,
 		if !ok {
 			// a file was deleted
 			klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %q in original files, not in new files", pv.Name, prr.Name, k))
-			return &prr, true, nil
+			return prr, true, mutationStatus, nil
 		}
 
 		if newValue != v {
@@ -816,14 +814,14 @@ func (r *PackageVariantReconciler) calculateDraftResources(ctx context.Context,
 
 			// a file was changed
 			klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources changed: %q different", pv.Name, prr.Name, k))
-			return &prr, true, nil
+			return prr, true, mutationStatus, nil
 		}
 	}
 
 	// all files in orig are in new, no new files, and all contents match
 	// so no change
 	klog.Infoln(fmt.Sprintf("PackageVariant %q, PackageRevision %q, resources unchanged", pv.Name, prr.Name))
-	return &prr, false, nil
+	return prr, false, mutationStatus, nil
 }
 
 func parseKptfile(kf string) (*kptfilev1.KptFile, error) {
@@ -881,146 +879,23 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 	return ko, nil
 }
 
-// ensureKRMFunctions adds mutators and validators specified in the PackageVariant to the kptfile inside the PackageRevisionResources.
-// It generates a unique name that identifies the func (see func generatePVFuncname) and moves it to the top of the mutator sequence.
-// It does not preserve yaml indent-style.
-func ensureKRMFunctions(pv *api.PackageVariant,
-	prr *porchapi.PackageRevisionResources) error {
-
-	// parse kptfile
-	kptfile, err := getFileKubeObject(prr, kptfilev1.KptFileName, "", "")
-	if err != nil {
-		return err
-	}
-	pipeline := kptfile.UpsertMap("pipeline")
-
-	fieldlist := map[string][]kptfilev1.Function{
-		"validators": make([]kptfilev1.Function, 0),
-		"mutators":   make([]kptfilev1.Function, 0),
-	}
-	// retrieve fields if pipeline is not nil, to avoid nilpointer exception
-
-	for _, m := range pv.Spec.Mutations {
-		if m.Type == api.MutationTypePrependPipeline {
-			fieldlist["validators"] = append(fieldlist["validators"], m.PrependPipeline.Validators...)
-			fieldlist["mutators"] = append(fieldlist["mutators"], m.PrependPipeline.Mutators...)
-		}
-	}
-
-	for fieldname, field := range fieldlist {
-		var newFieldVal = fn.SliceSubObjects{}
-
-		existingFields, ok, err := pipeline.NestedSlice(fieldname)
-		if err != nil {
-			return err
-		}
-		if !ok || existingFields == nil {
-			existingFields = fn.SliceSubObjects{}
-		}
-
-		for _, existingField := range existingFields {
-			ok, err := isPackageVariantFunc(existingField, pv.ObjectMeta.Name)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				newFieldVal = append(newFieldVal, existingField)
-			}
-		}
-
-		var newPVFieldVal = fn.SliceSubObjects{}
-		for i, newFields := range field {
-			newFieldVal := newFields.DeepCopy()
-			newFieldVal.Name = generatePVFuncName(newFields.Name, pv.ObjectMeta.Name, i)
-			f, err := fn.NewFromTypedObject(newFieldVal)
-			if err != nil {
-				return err
-			}
-			newPVFieldVal = append(newPVFieldVal, &f.SubObject)
-		}
-
-		newFieldVal = append(newPVFieldVal, newFieldVal...)
-
-		// if there are new mutators/validators, set them. Otherwise delete the field. This avoids ugly dangling `mutators: []` fields in the final kptfile
-		if len(newFieldVal) > 0 {
-			if err := pipeline.SetSlice(newFieldVal, fieldname); err != nil {
-				return err
-			}
-		} else {
-			if _, err := pipeline.RemoveNestedField(fieldname); err != nil {
-				return err
-			}
-		}
-	}
-
-	// if there are no mutators and no validators, remove the dangling pipeline field
-	if pipeline.GetMap("mutators") == nil && pipeline.GetMap("validators") == nil {
-		if _, err := kptfile.RemoveNestedField("pipeline"); err != nil {
-			return err
-		}
-	}
-
-	// update kptfile
-	prr.Spec.Resources[kptfilev1.KptFileName] = kptfile.String()
-
-	return nil
-}
-
-const PackageVariantFuncPrefix = "PackageVariant"
-
-// isPackageVariantFunc returns true if a function has been created via a PackageVariant.
-// It uses the name of the func to determine its origin and compares it with the supplied pvName.
-func isPackageVariantFunc(fn *fn.SubObject, pvName string) (bool, error) {
-	origname, ok, err := fn.NestedString("name")
-	if err != nil {
-		return false, fmt.Errorf("could not retrieve field name: %w", err)
-	}
-	if !ok {
-		return false, nil
-	}
-
-	name := strings.Split(origname, ".")
-
-	// if more or less than 3 dots have been used, return false
-	if len(name) != 4 {
-		return false, nil
-	}
-
-	// if PackageVariantFuncPrefix has not been used, return false
-	if name[0] != PackageVariantFuncPrefix {
-		return false, nil
-	}
-
-	// if pv-names don't match, return false
-	if name[1] != pvName {
-		return false, nil
-	}
-
-	// if the last segment is not an integer, return false
-	if _, err := strconv.Atoi(name[3]); err != nil {
-		return false, nil
-	}
-
-	return true, nil
-}
-
-func generatePVFuncName(funcName, pvName string, pos int) string {
-	return fmt.Sprintf("%s.%s.%s.%d", PackageVariantFuncPrefix, pvName, funcName, pos)
-}
-
-func (r *PackageVariantReconciler) updatePackageResources(ctx context.Context, prr *porchapi.PackageRevisionResources, pv *api.PackageVariant) error {
+func (r *PackageVariantReconciler) updatePackageResources(
+	ctx context.Context, prr *porchapi.PackageRevisionResources, pv *api.PackageVariant, mutationStatus []api.MutationStatus,
+) error {
 	if err := r.Update(ctx, prr); err != nil {
 		return err
 	}
 	for i, target := range pv.Status.DownstreamTargets {
 		if target.Name == prr.Name {
 			pv.Status.DownstreamTargets[i].RenderStatus = prr.Status.RenderStatus
+			pv.Status.DownstreamTargets[i].Mutations = mutationStatus
 			return nil
 		}
 	}
 	pv.Status.DownstreamTargets = append(pv.Status.DownstreamTargets, api.DownstreamTarget{
 		Name:         prr.Name,
 		RenderStatus: prr.Status.RenderStatus,
+		Mutations:    mutationStatus,
 	})
 	return nil
 }
