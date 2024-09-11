@@ -55,14 +55,18 @@ func (m *addToPipeline) Apply(ctx context.Context, prr *porchapi.PackageRevision
 
 	pipelineObj := kptfile.UpsertMap("pipeline")
 	for fieldname, newFunctions := range newPipeline {
-		oldFunctionObjs, ok, err := pipelineObj.NestedSlice(fieldname)
-		if err != nil {
-			return err
+		// do not touch Kptfile if it is not necessary
+		if len(newFunctions) == 0 {
+			continue
 		}
-		if !ok || oldFunctionObjs == nil {
+
+		// get existing functions
+		oldFunctionObjs := pipelineObj.GetSlice(fieldname)
+		if oldFunctionObjs == nil {
 			oldFunctionObjs = fn.SliceSubObjects{}
 		}
 
+		// prepare new functions to inject
 		var newFunctionObjs = fn.SliceSubObjects{}
 		for i, newFunction := range newFunctions {
 			newFuncObj, err := fn.NewFromTypedObject(newFunction)
@@ -76,7 +80,7 @@ func (m *addToPipeline) Apply(ctx context.Context, prr *porchapi.PackageRevision
 			}
 			newFunctionObjs = append(newFunctionObjs, &newFuncObj.SubObject)
 		}
-
+		// inject the functions
 		var result fn.SliceSubObjects
 		switch m.mutation.Type {
 		case api.MutationTypePrependPipeline:
@@ -84,22 +88,7 @@ func (m *addToPipeline) Apply(ctx context.Context, prr *porchapi.PackageRevision
 		case api.MutationTypeAppendPipeline:
 			result = append(oldFunctionObjs, newFunctionObjs...)
 		}
-
-		// if there are new mutators/validators, set them. Otherwise delete the field. This avoids ugly dangling `mutators: []` fields in the final kptfile
-		if len(result) > 0 {
-			if err := pipelineObj.SetSlice(result, fieldname); err != nil {
-				return err
-			}
-		} else {
-			if _, err := pipelineObj.RemoveNestedField(fieldname); err != nil {
-				return err
-			}
-		}
-	}
-
-	// if there are no mutators and no validators, remove the dangling pipeline field
-	if pipelineObj.GetSlice("mutators") == nil && pipelineObj.GetSlice("validators") == nil {
-		if _, err := kptfile.RemoveNestedField("pipeline"); err != nil {
+		if err := pipelineObj.SetSlice(result, fieldname); err != nil {
 			return err
 		}
 	}

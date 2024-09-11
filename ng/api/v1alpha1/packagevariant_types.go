@@ -105,7 +105,7 @@ type MutationType string
 const (
 	MutationTypeInjectPackageRevision       MutationType = "InjectPackageRevision"
 	MutationTypeInjectLatestPackageRevision MutationType = "InjectLatestPackageRevision"
-	MutationTypeInjectObject                MutationType = "InjectObject"
+	MutationTypeInjectLiveObject            MutationType = "InjectLiveObject"
 	MutationTypePrependPipeline             MutationType = "PrependPipeline"
 	MutationTypeAppendPipeline              MutationType = "AppendPipeline"
 )
@@ -113,7 +113,7 @@ const (
 // A mutation that should be applied to the downstream package
 // +kubebuilder:validation:XValidation:message="injectPackageRevision field is mandatory if type == InjectPackageRevision",rule="self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)"
 // +kubebuilder:validation:XValidation:message="injectLatestPackageRevision field is mandatory if type == InjectLatestPackageRevision",rule="self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)"
-// +kubebuilder:validation:XValidation:message="injectObject field is mandatory if type == InjectObject",rule="self.type != 'InjectObject' || has(self.injectObject)"
+// +kubebuilder:validation:XValidation:message="injectLiveObject field is mandatory if type == InjectLiveObject",rule="self.type != 'InjectLiveObject' || has(self.injectLiveObject)"
 // +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
 // +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
 type Mutation struct {
@@ -132,7 +132,7 @@ type Mutation struct {
 	// Data for "InjectLatestPackageRevision" type
 	InjectLatestPackageRevision *InjectLatestPackageRevision `json:"injectLatestPackageRevision,omitempty"`
 	// Data for "AppendPipeline" type
-	InjectObject *InjectObject `json:"injectObject,omitempty"`
+	InjectLiveObject *InjectLiveObject `json:"injectLiveObject,omitempty"`
 	// Data for "PrependPipeline" type
 	PrependPipeline *kptfile.Pipeline `json:"prependPipeline,omitempty"`
 	// Data for "AppendPipeline" type
@@ -174,9 +174,9 @@ type ObjectRef struct {
 	Name      string  `json:"name"`
 }
 
-// InjectObject specifies how to select in-cluster objects for
+// InjectLiveObject specifies how to select in-cluster objects for
 // resolving injection points.
-type InjectObject struct {
+type InjectLiveObject struct {
 	Group       *string   `json:"group,omitempty"`
 	Version     *string   `json:"version,omitempty"`
 	Kind        *string   `json:"kind,omitempty"`

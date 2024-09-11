@@ -74,7 +74,7 @@ func ensureMutations(
 				pvKey:    client.ObjectKeyFromObject(pv),
 			}
 
-		case api.MutationTypeInjectObject:
+		case api.MutationTypeInjectLiveObject:
 			// handled elsewhere
 			continue
 
@@ -126,24 +126,37 @@ func removeAllKrmFunctionsInjectedByUs(prr *porchapi.PackageRevisionResources, p
 				result = append(result, function)
 			}
 		}
-		// if there are new mutators/validators, set them. Otherwise delete the field. This avoids ugly dangling `mutators: []` fields in the final kptfile
-		if len(result) > 0 {
-			if err := pipelineObj.SetSlice(result, fieldname); err != nil {
-				return err
-			}
-		} else {
+		if err := pipelineObj.SetSlice(result, fieldname); err != nil {
+			return err
+		}
+	}
+	if err := cleanUpKptfile(kptfile); err != nil {
+		return err
+	}
+	prr.Spec.Resources[kptfileapi.KptFileName] = kptfile.String()
+	return nil
+}
+
+func cleanUpKptfile(kptfile *fn.KubeObject) error {
+	// remove empty/dangling pipeline fields
+	pipelineObj := kptfile.GetMap("pipeline")
+	if pipelineObj == nil {
+		return nil
+	}
+	for _, fieldname := range []string{"validators", "mutators"} {
+		functions := pipelineObj.GetSlice(fieldname)
+		if len(functions) == 0 {
 			if _, err := pipelineObj.RemoveNestedField(fieldname); err != nil {
 				return err
 			}
 		}
 	}
-	// if there are no mutators and no validators, remove the dangling pipeline field
+	// if there are no mutators and no validators, remove the dangling pipeline field itself
 	if pipelineObj.GetSlice("mutators") == nil && pipelineObj.GetSlice("validators") == nil {
 		if _, err := kptfile.RemoveNestedField("pipeline"); err != nil {
 			return err
 		}
 	}
-	prr.Spec.Resources[kptfileapi.KptFileName] = kptfile.String()
 	return nil
 }
 

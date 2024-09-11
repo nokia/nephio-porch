@@ -67,7 +67,7 @@ spec:
 		"parse error": {
 			resources: `    junk.yaml: |
       baddata`,
-			expectedErr: "junk.yaml: failed to extract objects: unhandled node kind 8",
+			expectedErr: "junk.yaml: wrong node kind: expected MappingNode but got ScalarNode: node contents:\nbaddata\n",
 		},
 		"no injection points": {
 			resources: ``,
@@ -665,8 +665,8 @@ spec:
 		"one ConfigMap injection point": {
 			injectors: []api.Mutation{
 				{
-					Type: api.MutationTypeInjectObject,
-					InjectObject: &api.InjectObject{
+					Type: api.MutationTypeInjectLiveObject,
+					InjectLiveObject: &api.InjectLiveObject{
 						Source: api.ObjectRef{
 							Name: "us-east1-endpoints",
 						},
@@ -720,8 +720,8 @@ spec:
 		"one non-ConfigMap injection point": {
 			injectors: []api.Mutation{
 				{
-					Type: api.MutationTypeInjectObject,
-					InjectObject: &api.InjectObject{
+					Type: api.MutationTypeInjectLiveObject,
+					InjectLiveObject: &api.InjectLiveObject{
 						Group: strptr("hr.example.com"),
 						Kind:  strptr("Team"),
 						Source: api.ObjectRef{
@@ -778,8 +778,8 @@ spec:
 		"mixed injection points": {
 			injectors: []api.Mutation{
 				{
-					Type: api.MutationTypeInjectObject,
-					InjectObject: &api.InjectObject{
+					Type: api.MutationTypeInjectLiveObject,
+					InjectLiveObject: &api.InjectLiveObject{
 						Source: api.ObjectRef{
 							Name: "us-east2-endpoints",
 						},
@@ -789,8 +789,8 @@ spec:
 					},
 				},
 				{
-					Type: api.MutationTypeInjectObject,
-					InjectObject: &api.InjectObject{
+					Type: api.MutationTypeInjectLiveObject,
+					InjectLiveObject: &api.InjectLiveObject{
 						Group: strptr("hr.example.com"),
 						Kind:  strptr("Team"),
 						Source: api.ObjectRef{

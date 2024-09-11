@@ -106,10 +106,10 @@ func ensureConfigInjection(ctx context.Context,
 		return err
 	}
 
-	injectors := make([]api.InjectObject, 0)
+	injectors := make([]api.InjectLiveObject, 0)
 	for _, m := range pv.Spec.Mutations {
-		if m.Type == api.MutationTypeInjectObject {
-			injectors = append(injectors, *m.InjectObject)
+		if m.Type == api.MutationTypeInjectLiveObject {
+			injectors = append(injectors, *m.InjectLiveObject)
 		}
 	}
 
@@ -190,7 +190,7 @@ func validateInjectionPoints(injectionPoints []*injectionPoint) error {
 	return nil
 }
 
-func injectResources(ctx context.Context, c client.Client, namespace string, injectors []api.InjectObject, injectionPoints []*injectionPoint) {
+func injectResources(ctx context.Context, c client.Client, namespace string, injectors []api.InjectLiveObject, injectionPoints []*injectionPoint) {
 	for _, ip := range injectionPoints {
 		if len(injectors) == 0 {
 			ip.errors = append(ip.errors, "no injectors defined")
@@ -204,7 +204,7 @@ func injectResources(ctx context.Context, c client.Client, namespace string, inj
 	}
 }
 
-func (ip *injectionPoint) inject(injectors []api.InjectObject) {
+func (ip *injectionPoint) inject(injectors []api.InjectLiveObject) {
 	if len(ip.inClusterResources) == 0 {
 		ip.errors = append(ip.errors, fmt.Sprintf("no in-cluster resources of type %s.%s", ip.object.GetAPIVersion(), ip.object.GetKind()))
 		return
@@ -258,7 +258,7 @@ func (ip *injectionPoint) injectResource(u *unstructured.Unstructured) {
 	}
 }
 
-func (ip *injectionPoint) matchSelector(injector api.InjectObject) *unstructured.Unstructured {
+func (ip *injectionPoint) matchSelector(injector api.InjectLiveObject) *unstructured.Unstructured {
 	// Check if this selector matches this in-package object
 	g, v := fn.ParseGroupVersion(ip.object.GetAPIVersion())
 	if injector.Group != nil && *injector.Group != g {

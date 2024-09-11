@@ -1,4 +1,4 @@
-// Copyright 2022 The kpt and Nephio Authors
+// Copyright 2024 The kpt and Nephio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -79,6 +79,21 @@ spec:
 						},
 					},
 				},
+				{
+					Type: api.MutationTypeAppendPipeline,
+					Name: "append-functions",
+					AppendPipeline: &kptfile.Pipeline{
+						Mutators: []kptfile.Function{
+							{
+								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
+								Name:  "set-namespace-after",
+								ConfigMap: map[string]string{
+									"namespace": "my-ns-after",
+								},
+							},
+						},
+					},
+				},
 			},
 			expectedErr: "",
 			expectedPrr: prrBase + `
@@ -94,6 +109,10 @@ spec:
             app: foo
         - image: gcr.io/kpt-fn/set-annotations:v0.1
           name: set-annotations
+        - name: PackageVariant.ng.porch.kpt.dev/my-ns/my-pv//append-functions/set-namespace-after-0
+          image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns-after
 `[1:],
 		},
 		"add two mutators with existing": {

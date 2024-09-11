@@ -325,7 +325,7 @@ spec:
                       - package
                       - repo
                       type: object
-                    injectObject:
+                    injectLiveObject:
                       description: Data for "AppendPipeline" type
                       properties:
                         destination:
@@ -623,8 +623,8 @@ spec:
                   - message: injectLatestPackageRevision field is mandatory if type
                       == InjectLatestPackageRevision
                     rule: self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)
-                  - message: injectObject field is mandatory if type == InjectObject
-                    rule: self.type != 'InjectObject' || has(self.injectObject)
+                  - message: injectLiveObject field is mandatory if type == InjectLiveObject
+                    rule: self.type != 'InjectLiveObject' || has(self.injectLiveObject)
                   - message: prependPipeline field is mandatory if type == PrependPipeline
                     rule: self.type != 'PrependPipeline' || has(self.prependPipeline)
                   - message: appendPipeline field is mandatory if type == AppendPipeline
@@ -733,6 +733,22 @@ spec:
                   either created or adopted.
                 items:
                   properties:
+                    mutations:
+                      items:
+                        properties:
+                          applied:
+                            type: boolean
+                          manager:
+                            type: string
+                          message:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - applied
+                        - name
+                        type: object
+                      type: array
                     name:
                       type: string
                     renderStatus:
