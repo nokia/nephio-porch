@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
+func (t *PvSuite) TestInjectPackage(ctx context.Context) {
 	const (
 		downstreamRepository = "target"
 		downstreamPackage    = "target-package"
@@ -116,7 +116,7 @@ func (t *PvSuite) TestPackageVariantMutationInjectPackage(ctx context.Context) {
 	t.CheckInjectedSubPackages(ctx, pv)
 }
 
-func (t *PvSuite) TestPackageVariantMutationInjectLatestRevision(ctx context.Context) {
+func (t *PvSuite) TestInjectLatestRevision(ctx context.Context) {
 	const (
 		downstreamRepository = "target"
 		downstreamPackage    = "target-package"

@@ -690,6 +690,7 @@ func (r *PackageVariantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	//      we own, and use those to generate requests
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.PackageVariant{}).
+		Owns(&porchapi.PackageRevision{}).
 		Watches(&porchapi.PackageRevision{}, handler.EnqueueRequestsFromMapFunc(mapObjectsToRequests(r.Client))).
 		Complete(r)
 }

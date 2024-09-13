@@ -36,6 +36,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/google/uuid"
 	"github.com/nephio-project/porch/api/porch/v1alpha1"
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
@@ -74,12 +75,19 @@ type GitRepositoryOptions struct {
 	UseGitCaBundle     bool
 }
 
-func OpenRepository(ctx context.Context, name, namespace string, spec *configapi.GitRepository, deployment bool, root string, opts GitRepositoryOptions) (GitRepository, error) {
+func OpenRepository(
+	ctx context.Context,
+	name, namespace string,
+	spec *configapi.GitRepository,
+	deployment bool,
+	root string,
+	opts GitRepositoryOptions,
+) (GitRepository, error) {
 	ctx, span := tracer.Start(ctx, "OpenRepository", trace.WithAttributes())
 	defer span.End()
 
 	replace := strings.NewReplacer("/", "-", ":", "-")
-	dir := filepath.Join(root, replace.Replace(spec.Repo))
+	dir := filepath.Join(root, replace.Replace(spec.Repo), uuid.New().String())
 
 	// Cleanup the cache directory in case initialization fails.
 	cleanup := dir
