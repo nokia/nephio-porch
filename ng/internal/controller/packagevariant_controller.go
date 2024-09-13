@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
-	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 	"github.com/nephio-project/porch/ng/internal/utils"
 
@@ -39,9 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // PackageVariantReconciler reconciles a PackageVariant object
@@ -137,7 +134,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message: "all validation checks passed",
 	})
 
-	targets, err := r.ensurePackageVariant(ctx, pv, upstream)
+	_, err = r.ensurePackageVariant(ctx, pv, upstream)
 	if err != nil {
 		meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
 			Type:    api.ConditionTypeReady,
@@ -148,9 +145,12 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// requeue; it may be an intermittent error
 		return ctrl.Result{}, err
 	}
-
-	setTargetStatusConditions(pv, targets)
-
+	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
+		Type:    api.ConditionTypeReady,
+		Status:  "True",
+		Reason:  "NoErrors",
+		Message: "successfully ensured downstream package variant",
+	})
 	return ctrl.Result{}, nil
 }
 
@@ -262,77 +262,128 @@ func (r *PackageVariantReconciler) ensurePackageVariant(
 	[]*porchapi.PackageRevision,
 	error,
 ) {
+	// find or create downstream package revisions
 	downstreams, err := r.getDownstreamPRs(ctx, pv, client.ObjectKeyFromObject(upstreamPR))
 	if err != nil {
 		return nil, err
 	}
 
-	for i, downstream := range downstreams {
-		if downstream.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
-			// We proposed this package revision for deletion in the past, but now it
-			// matches our target, so we no longer want it to be deleted.
-			downstream.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
-			// We update this now, because later we may use a Porch call to clone or update
-			// and we want to make sure the server is in sync with us
-			if err := r.Client.Update(ctx, downstream); err != nil {
-				klog.Errorf("error updating package revision lifecycle: %v", err)
-				return nil, err
-			}
-		}
-
-		// see if the package needs updating due to an upstream change
-		if !r.isUpToDate(pv, downstream) {
-			// we need to copy a published package to a new draft before updating
-			if porchapi.LifecycleIsPublished(downstream.Spec.Lifecycle) {
-				klog.Infoln(fmt.Sprintf("package variant %q needs to update package revision %q for new upstream revision, creating new draft", pv.Name, downstream.Name))
-				downstream, err = r.copyPublished(ctx, downstream, pv)
-				if err != nil {
-					return nil, err
-				}
-			}
-			downstreams[i], err = r.updateDraft(ctx, downstream, upstreamPR)
-			if err != nil {
-				return nil, err
-			}
-			klog.Infoln(fmt.Sprintf("package variant %q updated package revision %q to upstream revision %s", pv.Name, downstream.Name, upstreamPR.Spec.Revision))
-		}
-
-		// finally, see if any other changes are needed to the resources
-		prr, changed, mutationStatus, err := r.calculateDraftResources(ctx, pv, downstreams[i])
+	// ensure that all downstream package revisions are up-to-date
+	var errors []string
+	statuses := make([]*api.DownstreamTarget, len(downstreams))
+	for i, downstreamPR := range downstreams {
+		downstreams[i], statuses[i], err = r.ensureDownstreamTarget(ctx, pv, upstreamPR, downstreamPR)
 		if err != nil {
-			return nil, err
-		}
-
-		// if there are changes, save them
-		if changed {
-			// if no pkg update was needed, we may still be a published package
-			// so, clone to a new Draft if that's the case
-			if porchapi.LifecycleIsPublished(downstream.Spec.Lifecycle) {
-
-				downstream, err = r.copyPublished(ctx, downstream, pv)
-				if err != nil {
-					return nil, err
-				}
-				downstreams[i] = downstream
-				// recalculate from the new Draft
-				prr, _, mutationStatus, err = r.calculateDraftResources(ctx, pv, downstreams[i])
-				if err != nil {
-					return nil, err
-				}
-
-			}
-			// Save the updated PackageRevisionResources
-			if err := r.updatePackageResources(ctx, prr, pv, mutationStatus); err != nil {
-				return nil, err
-			}
+			errors = append(errors, fmt.Sprintf("%s: %s", downstreams[i].Name, err.Error()))
 		}
 	}
+	pv.Status.DownstreamTargets = make([]api.DownstreamTarget, len(statuses))
+	for i, status := range statuses {
+		pv.Status.DownstreamTargets[i] = *status
+	}
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("failed to ensure some downstream package revisions:\n  - %v", strings.Join(errors, "\n  - "))
+	}
 	return downstreams, nil
+}
+
+// ensureDownstreamTarget needs to:
+//   - Compare pv.Spec.Upstream.Revision to the revision number that the downstream
+//     package is based on. If it is different, we need to do an update (could be an upgrade
+//     or a downgrade).
+//   - Make sure that all of pv's mutations are applied to the downstream package revision.
+//   - If the downstream package revision is published, but its contents needed to be changed,
+//     then copy it into a new draft revision and apply the changes to that draft. In this case
+//     the new draft revision will be returned.
+func (r *PackageVariantReconciler) ensureDownstreamTarget(
+	ctx context.Context,
+	pv *api.PackageVariant,
+	upstreamPR *porchapi.PackageRevision,
+	downstreamPR *porchapi.PackageRevision,
+) (
+	*porchapi.PackageRevision,
+	*api.DownstreamTarget,
+	error,
+) {
+	var err error
+	status := downstreamStatusOf(downstreamPR, pv)
+
+	if downstreamPR.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
+		// We proposed this package revision for deletion in the past, but now it
+		// matches our target, so we no longer want it to be deleted.
+		downstreamPR.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+		// We update this now, because later we may use a Porch call to clone or update
+		// and we want to make sure the server is in sync with us
+		if err := r.Client.Update(ctx, downstreamPR); err != nil {
+			klog.Errorf("error updating package revision lifecycle: %v", err)
+			return nil, nil, err
+		}
+	}
+
+	// see if the package needs updating due to an upstream change
+	if !r.isUpToDate(pv, downstreamPR) {
+		// we need to copy a published package to a new draft before updating
+		if porchapi.LifecycleIsPublished(downstreamPR.Spec.Lifecycle) {
+			downstreamPR, err = r.copyPublished(ctx, downstreamPR, pv)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		downstreamPR, err = r.updateDraft(ctx, downstreamPR, upstreamPR)
+		if err != nil {
+			return nil, nil, err
+		}
+		klog.Infoln(fmt.Sprintf("package variant %q updated package revision %q to upstream revision %s", pv.Name, downstreamPR.Name, upstreamPR.Spec.Revision))
+	}
+
+	// finally, see if any other changes are needed to the resources
+	prr, changed, err := r.calculateDraftResources(ctx, pv, downstreamPR, status)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// if there are changes, save them
+	if changed {
+		// if no pkg update was needed, we may still be a published package
+		// so, clone to a new Draft if that's the case
+		if porchapi.LifecycleIsPublished(downstreamPR.Spec.Lifecycle) {
+
+			downstreamPR, err = r.copyPublished(ctx, downstreamPR, pv)
+			if err != nil {
+				return nil, nil, err
+			}
+			// recalculate from the new Draft
+			prr, _, err = r.calculateDraftResources(ctx, pv, downstreamPR, status)
+			if err != nil {
+				return nil, nil, err
+			}
+
+		}
+		// Save the updated PackageRevisionResources
+		if err := r.updatePackageResources(ctx, prr, status); err != nil {
+			return nil, nil, err
+		}
+	}
+	status.Name = downstreamPR.Name
+	return downstreamPR, status, nil
+}
+
+func downstreamStatusOf(downstreamPR *porchapi.PackageRevision, pv *api.PackageVariant) *api.DownstreamTarget {
+	status := api.DownstreamTarget{
+		Name: downstreamPR.Name,
+	}
+	for _, s := range pv.Status.DownstreamTargets {
+		if s.Name == downstreamPR.Name {
+			status.RenderStatus = s.RenderStatus
+		}
+	}
+	return &status
 }
 
 // If there are any drafts that are owned by us and match the target package revision, return them all.
 // If there are no drafts, return the latest published package revision owned by us.
 // If there are no drafts or published package revisions, create a new package revision.
+// getDownstreamPRs also deletes or orphans package revisions owned by `pv`, but doesn't match the current downstream target.
 func (r *PackageVariantReconciler) getDownstreamPRs(
 	ctx context.Context,
 	pv *api.PackageVariant,
@@ -645,119 +696,27 @@ func (r *PackageVariantReconciler) updateDraft(ctx context.Context,
 	return draft, nil
 }
 
-func setTargetStatusConditions(pv *api.PackageVariant, targets []*porchapi.PackageRevision) {
-	downstreams := []api.DownstreamTarget{}
-	// keep downstream status when possible
-	for _, t := range targets {
-		found := false
-		for _, d := range pv.Status.DownstreamTargets {
-			if d.Name == t.Name {
-				found = true
-				downstreams = append(downstreams, d)
-				break
-			}
-		}
-		if !found {
-			downstreams = append(downstreams, api.DownstreamTarget{
-				Name: t.GetName(),
-			})
-		}
-	}
-	pv.Status.DownstreamTargets = downstreams
-	meta.SetStatusCondition(&pv.Status.Conditions, metav1.Condition{
-		Type:    api.ConditionTypeReady,
-		Status:  "True",
-		Reason:  "NoErrors",
-		Message: "successfully ensured downstream package variant",
-	})
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *PackageVariantReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := api.AddToScheme(mgr.GetScheme()); err != nil {
-		return err
-	}
-	if err := porchapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return err
-	}
-	if err := configapi.AddToScheme(mgr.GetScheme()); err != nil {
-		return err
-	}
-
-	r.Client = mgr.GetClient()
-
-	//TODO: establish watches on resource types injected in all the Package Revisions
-	//      we own, and use those to generate requests
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&api.PackageVariant{}).
-		Owns(&porchapi.PackageRevision{}).
-		Watches(&porchapi.PackageRevision{}, handler.EnqueueRequestsFromMapFunc(mapObjectsToRequests(r.Client))).
-		Complete(r)
-}
-
-func isPrAndPvRelated(pr *porchapi.PackageRevision, pv *api.PackageVariant) bool {
-	if pv.Spec.Upstream.Repo == pr.Spec.RepositoryName &&
-		pv.Spec.Upstream.Package == pr.Spec.PackageName &&
-		pv.Spec.Upstream.Revision == pr.Spec.Revision {
-		return true
-	}
-	if pv.Spec.Downstream.Repo == pr.Spec.RepositoryName &&
-		pv.Spec.Downstream.Package == pr.Spec.PackageName {
-		return true
-	}
-	for _, mutation := range pv.Spec.Mutations {
-		switch mutation.Type {
-		case api.MutationTypeInjectLatestPackageRevision:
-			if pr.Spec.RepositoryName == mutation.InjectLatestPackageRevision.Repo &&
-				pr.Spec.PackageName == mutation.InjectLatestPackageRevision.Package {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func mapObjectsToRequests(mgrClient client.Reader) handler.MapFunc {
-	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		pr := obj.(*porchapi.PackageRevision)
-
-		pvs := &api.PackageVariantList{}
-		err := mgrClient.List(ctx, pvs, &client.ListOptions{Namespace: obj.GetNamespace()})
-		if err != nil {
-			return []reconcile.Request{}
-		}
-
-		requests := make([]reconcile.Request, 0, len(pvs.Items))
-		for _, pv := range pvs.Items {
-			if isPrAndPvRelated(pr, &pv) {
-				requests = append(requests, reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name:      pv.GetName(),
-						Namespace: pv.GetNamespace(),
-					},
-				})
-			}
-		}
-		return requests
-	}
-}
-
 func (r *PackageVariantReconciler) calculateDraftResources(
-	ctx context.Context, pv *api.PackageVariant, draft *porchapi.PackageRevision,
+	ctx context.Context,
+	pv *api.PackageVariant,
+	draft *porchapi.PackageRevision,
+	status *api.DownstreamTarget,
 ) (
-	prr *porchapi.PackageRevisionResources, changed bool, mutationStatus []api.MutationStatus, err error,
+	prr *porchapi.PackageRevisionResources,
+	changed bool,
+	err error,
 ) {
 	l := log.FromContext(ctx)
 	// Load the PackageRevisionResources
 	prr = &porchapi.PackageRevisionResources{}
 	prrKey := types.NamespacedName{Name: draft.GetName(), Namespace: draft.GetNamespace()}
 	if err := r.Client.Get(ctx, prrKey, prr); err != nil {
-		return nil, false, mutationStatus, err
+		return nil, false, err
 	}
 
 	// Check if it's a valid PRR
 	if prr.Spec.Resources == nil {
-		return nil, false, nil, fmt.Errorf("nil resources found for PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
+		return nil, false, fmt.Errorf("nil resources found for PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
 	}
 
 	origResources := make(map[string]string, len(prr.Spec.Resources))
@@ -766,24 +725,24 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 	}
 
 	if err := ensureConfigInjection(ctx, r.Client, pv, prr); err != nil {
-		return nil, false, nil, err
+		return nil, false, err
 	}
 
-	if mutationStatus, err = ensureMutations(ctx, r.Client, pv, prr); err != nil {
-		return nil, false, mutationStatus, err
+	if err = ensureMutations(ctx, r.Client, pv, prr, status); err != nil {
+		return nil, false, err
 	}
 
 	if len(prr.Spec.Resources) != len(origResources) {
 		// files were added or deleted
 		l.Info(fmt.Sprintf("PackageRevision %q changed: number of files: %d original files, %d new files", prr.Name, len(origResources), len(prr.Spec.Resources)))
-		return prr, true, mutationStatus, nil
+		return prr, true, nil
 	}
 
 	for file, oldContent := range origResources {
 		newContent, ok := prr.Spec.Resources[file]
 		if !ok {
 			l.Info(fmt.Sprintf("PackageRevision %q changed: file %q was deleted", prr.Name, file))
-			return prr, true, mutationStatus, nil
+			return prr, true, nil
 		}
 
 		if newContent != oldContent {
@@ -799,14 +758,14 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 
 			// a file was changed
 			l.Info(fmt.Sprintf("PackageRevision %q changed: contents of file %q changed", prr.Name, file))
-			return prr, true, mutationStatus, nil
+			return prr, true, nil
 		}
 	}
 
 	// all files in orig are in new, no new files, and all contents match
 	// so no change
 	l.Info(fmt.Sprintf("PackageRevision %q: resources unchanged", prr.Name))
-	return prr, false, mutationStatus, nil
+	return prr, false, nil
 }
 
 func parseKptfile(kf string) (*kptfilev1.KptFile, error) {
@@ -865,22 +824,13 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 }
 
 func (r *PackageVariantReconciler) updatePackageResources(
-	ctx context.Context, prr *porchapi.PackageRevisionResources, pv *api.PackageVariant, mutationStatus []api.MutationStatus,
+	ctx context.Context,
+	prr *porchapi.PackageRevisionResources,
+	status *api.DownstreamTarget,
 ) error {
 	if err := r.Update(ctx, prr); err != nil {
 		return err
 	}
-	for i, target := range pv.Status.DownstreamTargets {
-		if target.Name == prr.Name {
-			pv.Status.DownstreamTargets[i].RenderStatus = prr.Status.RenderStatus
-			pv.Status.DownstreamTargets[i].Mutations = mutationStatus
-			return nil
-		}
-	}
-	pv.Status.DownstreamTargets = append(pv.Status.DownstreamTargets, api.DownstreamTarget{
-		Name:         prr.Name,
-		RenderStatus: prr.Status.RenderStatus,
-		Mutations:    mutationStatus,
-	})
+	status.RenderStatus = prr.Status.RenderStatus
 	return nil
 }

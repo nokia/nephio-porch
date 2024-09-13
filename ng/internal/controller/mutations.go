@@ -44,20 +44,23 @@ type mutator interface {
 // ensureMutations applies mutations specified in the PackageVariant to the PackageRevisionResources
 // NOTE: this is not a member of the Reconciler for easier unit testing
 func ensureMutations(
-	ctx context.Context, cl client.Client, pv *api.PackageVariant, prr *porchapi.PackageRevisionResources,
-) (
-	mutationStatus []api.MutationStatus, err error,
-) {
-	l := log.FromContext(ctx)
-
+	ctx context.Context,
+	cl client.Client,
+	pv *api.PackageVariant,
+	prr *porchapi.PackageRevisionResources,
+	status *api.DownstreamTarget,
+) error {
 	// Remove all KRM functions injected by us previously and later re-inject the ones that are still needed.
 	// This might change the YAML formatting of the injected functions, but that's fine since we're detecting Kptfiles changes
 	// by semantic comparison (as opposed to comparing YAML representations)
 	removeAllKrmFunctionsInjectedByUs(prr, client.ObjectKeyFromObject(pv))
 
 	errors := make([]string, 0)
-	mutationStatus = make([]api.MutationStatus, len(pv.Spec.Mutations))
+	status.Mutations = make([]api.MutationStatus, len(pv.Spec.Mutations))
 	for i, mutation := range pv.Spec.Mutations {
+		status.Mutations[i].Name = mutation.Name
+		status.Mutations[i].Manager = mutation.Manager
+
 		// map Mutation API object to a mutator
 		var mutator mutator
 		switch mutation.Type {
@@ -76,29 +79,29 @@ func ensureMutations(
 
 		case api.MutationTypeInjectLiveObject:
 			// handled elsewhere
+			// TODO: move implementation here from ensureInjections
 			continue
 
 		default:
-			l.Info("TODO: unsupported mutation type: %s", mutation.Type)
+			status.Mutations[i].Applied = false
+			status.Mutations[i].Message = fmt.Sprintf("unsupported mutation type: %s", mutation.Type)
+			continue
 		}
 
 		// apply mutation
-		mutationStatus[i].Name = mutation.Name
-		mutationStatus[i].Manager = mutation.Manager
 		if err := mutator.Apply(ctx, prr); err != nil {
-			mutationStatus[i].Applied = false
-			mutationStatus[i].Message = err.Error()
+			status.Mutations[i].Applied = false
+			status.Mutations[i].Message = err.Error()
 			errors = append(errors, mutation.Id()+": "+err.Error())
 		} else {
-			mutationStatus[i].Applied = true
+			status.Mutations[i].Applied = true
 		}
 	}
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
 	if len(errors) > 0 {
-		err = fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
-		return
+		return fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
 	}
-	return
+	return nil
 }
 
 func pvPrefix(pvKey client.ObjectKey) string {
