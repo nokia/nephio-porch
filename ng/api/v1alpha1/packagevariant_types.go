@@ -191,10 +191,10 @@ type PackageVariantStatus struct {
 
 	// DownstreamTargets contains the downstream targets that the PackageVariant
 	// either created or adopted.
-	DownstreamTargets []DownstreamTarget `json:"downstreamTargets,omitempty"`
+	DownstreamTargets []DownstreamTargetStatus `json:"downstreamTargets,omitempty"`
 }
 
-type DownstreamTarget struct {
+type DownstreamTargetStatus struct {
 	Name         string                `json:"name,omitempty"`
 	RenderStatus porchapi.RenderStatus `json:"renderStatus,omitempty"`
 	Mutations    []MutationStatus      `json:"mutations,omitempty"`

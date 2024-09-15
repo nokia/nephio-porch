@@ -112,8 +112,13 @@ spec:
 		t.Run(tn, func(t *testing.T) {
 			var pv api.PackageVariant
 			require.NoError(t, yaml.Unmarshal([]byte(tc.packageVariant), &pv))
-			actualErr := combineErrors(validatePackageVariant(&pv))
-			require.Equal(t, tc.expectedErr, actualErr)
+			actualErr := validatePackageVariant(&pv)
+			if tc.expectedErr != "" {
+				require.NotNil(t, actualErr)
+				require.Equal(t, tc.expectedErr, actualErr.Error())
+			} else {
+				require.Nil(t, actualErr)
+			}
 		})
 	}
 }

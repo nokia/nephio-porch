@@ -48,18 +48,18 @@ func ensureMutations(
 	cl client.Client,
 	pv *api.PackageVariant,
 	prr *porchapi.PackageRevisionResources,
-	status *api.DownstreamTarget,
+	target *downstreamTarget,
 ) error {
 	// Remove all KRM functions injected by us previously and later re-inject the ones that are still needed.
 	// This might change the YAML formatting of the injected functions, but that's fine since we're detecting Kptfiles changes
 	// by semantic comparison (as opposed to comparing YAML representations)
 	removeAllKrmFunctionsInjectedByUs(prr, client.ObjectKeyFromObject(pv))
 
-	errors := make([]string, 0)
-	status.Mutations = make([]api.MutationStatus, len(pv.Spec.Mutations))
+	errors := utils.CombinedError{Joiner: "\n --- "}
+	target.mutationStatus = make([]api.MutationStatus, len(pv.Spec.Mutations))
 	for i, mutation := range pv.Spec.Mutations {
-		status.Mutations[i].Name = mutation.Name
-		status.Mutations[i].Manager = mutation.Manager
+		target.mutationStatus[i].Name = mutation.Name
+		target.mutationStatus[i].Manager = mutation.Manager
 
 		// map Mutation API object to a mutator
 		var mutator mutator
@@ -83,25 +83,22 @@ func ensureMutations(
 			continue
 
 		default:
-			status.Mutations[i].Applied = false
-			status.Mutations[i].Message = fmt.Sprintf("unsupported mutation type: %s", mutation.Type)
+			target.mutationStatus[i].Applied = false
+			target.mutationStatus[i].Message = fmt.Sprintf("unsupported mutation type: %s", mutation.Type)
 			continue
 		}
 
 		// apply mutation
 		if err := mutator.Apply(ctx, prr); err != nil {
-			status.Mutations[i].Applied = false
-			status.Mutations[i].Message = err.Error()
-			errors = append(errors, mutation.Id()+": "+err.Error())
+			target.mutationStatus[i].Applied = false
+			target.mutationStatus[i].Message = err.Error()
+			errors.Addf("%s: %w", mutation.Id(), err)
 		} else {
-			status.Mutations[i].Applied = true
+			target.mutationStatus[i].Applied = true
 		}
 	}
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to apply some mutations:\n  - %v", strings.Join(errors, "\n  - "))
-	}
-	return nil
+	return errors.ErrorOrNil("failed to apply mutations:")
 }
 
 func pvPrefix(pvKey client.ObjectKey) string {

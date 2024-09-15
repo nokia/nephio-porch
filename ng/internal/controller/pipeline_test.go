@@ -440,7 +440,7 @@ spec:
 			var prr porchapi.PackageRevisionResources
 			require.NoError(t, yaml.Unmarshal([]byte(locPrrBase+tc.initialPipeline), &prr))
 			pv := withMutations(&pvBase, tc.pvPipeline...)
-			actualErr := ensureMutations(context.TODO(), nil, pv, &prr, &api.DownstreamTarget{})
+			actualErr := ensureMutations(context.TODO(), nil, pv, &prr, &downstreamTarget{})
 			if tc.expectedErr == "" {
 				require.NoError(t, actualErr)
 			} else {
@@ -452,7 +452,7 @@ spec:
 			require.Equal(t, expectedPRR, prr)
 
 			// test idempotence
-			idemErr := ensureMutations(context.TODO(), nil, pv, &prr, &api.DownstreamTarget{})
+			idemErr := ensureMutations(context.TODO(), nil, pv, &prr, &downstreamTarget{})
 			if tc.expectedErr == "" {
 				require.NoError(t, idemErr)
 			} else {
