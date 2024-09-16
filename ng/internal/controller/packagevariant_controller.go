@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
@@ -109,8 +111,11 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		// Remove our finalizer from the list and update it.
 		if controllerutil.RemoveFinalizer(pv, api.Finalizer) {
-			if err := r.Update(ctx, pv); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to delete finalizer: %w", err)
+			if err := r.Update(ctx, pv); client.IgnoreNotFound(err) != nil {
+				// TODO[kispaljr]: HACK ALERT! this error seems to be recurring, but seems harmless
+				if !strings.Contains(err.Error(), "StorageError: invalid object, Code: 4") {
+					return ctrl.Result{}, fmt.Errorf("failed to delete finalizer: %w", err)
+				}
 			}
 		}
 		return ctrl.Result{}, nil
@@ -136,9 +141,13 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	setValidCondition(pv, nil)
 
-	_, err = r.ensurePackageVariant(ctx, pv, upstream)
+	requeueNeeded, err := r.ensurePackageVariant(ctx, pv, upstream)
 	setReadyCondition(pv, err)
-	return ctrl.Result{}, err
+	if requeueNeeded {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
+	} else {
+		return ctrl.Result{}, err
+	}
 }
 
 func (r *PackageVariantReconciler) init(
@@ -277,13 +286,13 @@ func (r *PackageVariantReconciler) ensurePackageVariant(
 	pv *api.PackageVariant,
 	upstreamPR *porchapi.PackageRevision,
 ) (
-	[]*porchapi.PackageRevision,
-	error,
+	requeueNeeded bool,
+	_ error,
 ) {
 	// find or create downstream package revisions
 	downstreams, err := r.getDownstreamPRs(ctx, pv, client.ObjectKeyFromObject(upstreamPR))
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
 	// ensure that all downstream package revisions are up-to-date
@@ -293,15 +302,19 @@ func (r *PackageVariantReconciler) ensurePackageVariant(
 	}
 
 	// aggregate status and errors
+	requeueNeeded = false
 	errors := &utils.CombinedError{Joiner: "\n  --- "}
 	pv.Status.DownstreamTargets = make([]api.DownstreamTargetStatus, len(results))
 	for i, result := range results {
 		if result.err != nil {
 			errors.Addf("%s: %s", result.pr.Name, result.err)
 		}
+		if result.requeueNeeded {
+			requeueNeeded = true
+		}
 		pv.Status.DownstreamTargets[i] = result.status()
 	}
-	return downstreams, errors.ErrorOrNil("failed to ensure some downstream package revisions:")
+	return requeueNeeded, errors.ErrorOrNil("failed to ensure some downstream package revisions:")
 }
 
 func compare(pr, latestPublished *porchapi.PackageRevision, latestVersion string) (*porchapi.PackageRevision, string) {

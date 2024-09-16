@@ -80,6 +80,7 @@ func ensureMutations(
 		case api.MutationTypeInjectLiveObject:
 			// handled elsewhere
 			// TODO: move implementation here from ensureInjections
+			target.mutationStatus[i].Applied = true
 			continue
 
 		default:
@@ -97,6 +98,7 @@ func ensureMutations(
 			target.mutationStatus[i].Applied = true
 		}
 	}
+	setMutationConditions(ctx, pv, prr, target)
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
 	return errors.ErrorOrNil("failed to apply mutations:")
 }
@@ -213,4 +215,27 @@ func deleteSubDirs(subdirsToDelete []string, resources map[string]string) map[st
 		}
 	}
 	return newResources
+}
+
+func setMutationConditions(
+	ctx context.Context,
+	pv *api.PackageVariant,
+	prr *porchapi.PackageRevisionResources,
+	target *downstreamTarget,
+) {
+	l := log.FromContext(ctx)
+	kptfile, err := utils.NewKptfileFromResources(prr.Spec.Resources)
+	if err != nil {
+		//TODO[kispaljr]
+		l.Error(err, "failed to read Kptfile from PackageRevisionResources. skipping condition setting")
+	} else {
+		for i := range target.mutationStatus {
+			kptfile.SetTypedCondition(ConditionFromStatus(
+				pv.Spec.Mutations[i].ConditionType(pvPrefix(client.ObjectKeyFromObject(pv))),
+				target.mutationStatus[i].Applied,
+				target.mutationStatus[i].Message,
+			))
+		}
+	}
+	kptfile.WriteToResources(prr.Spec.Resources)
 }

@@ -33,11 +33,13 @@ type downstreamTarget struct {
 	renderStatus   porchapi.RenderStatus
 	mutationStatus []api.MutationStatus
 	err            error
+	requeueNeeded  bool
 }
 
 func newDownstreamTarget(downstreamPR *porchapi.PackageRevision, pv *api.PackageVariant) *downstreamTarget {
 	result := &downstreamTarget{
-		pr: downstreamPR,
+		pr:            downstreamPR,
+		requeueNeeded: false,
 	}
 	// preserve some fields from pv.Status
 	for _, s := range pv.Status.DownstreamTargets {
@@ -186,18 +188,18 @@ func (r *PackageVariantReconciler) ensureDownstreamTarget(
 	l := log.FromContext(ctx)
 	target = newDownstreamTarget(downstreamPR, pv)
 
-	if target.pr.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
-		// We proposed this package revision for deletion in the past, but now it
-		// matches our target, so we no longer want it to be deleted.
-		target.pr.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
-		// We update this now, because later we may use a Porch call to clone or update
-		// and we want to make sure the server is in sync with us
-		target.err = r.Client.Update(ctx, target.pr)
-		if target.err != nil {
-			l.Error(target.err, "couldn't update package revision lifecycle: %v")
-			return
-		}
-	}
+	// if target.pr.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
+	// 	// We proposed this package revision for deletion in the past, but now it
+	// 	// matches our target, so we no longer want it to be deleted.
+	// 	target.pr.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	// 	// We update this now, because later we may use a Porch call to clone or update
+	// 	// and we want to make sure the server is in sync with us
+	// 	target.err = r.Client.Update(ctx, target.pr)
+	// 	if target.err != nil {
+	// 		l.Error(target.err, "couldn't update package revision lifecycle"))
+	// 		return
+	// 	}
+	// }
 
 	// see if the package needs updating due to an upstream change
 	if !r.isUpToDate(pv, target.pr) {
@@ -248,6 +250,10 @@ func (r *PackageVariantReconciler) ensureDownstreamTarget(
 		}
 	}
 
+	target.err = r.ensureApproval(ctx, pv, target)
+	if target.err != nil {
+		return
+	}
 	return
 }
 
@@ -386,8 +392,9 @@ func (r *PackageVariantReconciler) deletePackageRevision(ctx context.Context, pr
 
 	switch pr.Spec.Lifecycle {
 	case porchapi.PackageRevisionLifecyclePublished:
+		l.Info(fmt.Sprintf("proposing published package revision %q for deletion", pr.Name))
 		pr.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDeletionProposed
-		if err := r.Client.Update(ctx, pr); err != nil {
+		if err := r.Client.Update(ctx, pr); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("couldn't propose package revision %q for deletion: %w", pr.Name, err)
 		}
 		fallthrough
@@ -398,6 +405,7 @@ func (r *PackageVariantReconciler) deletePackageRevision(ctx context.Context, pr
 		}
 		fallthrough
 	case "", porchapi.PackageRevisionLifecycleDraft, porchapi.PackageRevisionLifecycleProposed:
+		l.Info(fmt.Sprintf("deleting package revision %q", pr.Name))
 		err := r.Client.Delete(ctx, pr)
 		if client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("couldn't delete package revision %q: %w", pr.Name, err)
@@ -453,10 +461,8 @@ func (r *PackageVariantReconciler) deleteOrOrphan(
 	l := log.FromContext(ctx)
 	switch pv.Spec.DeletionPolicy {
 	case api.DeletionPolicyProposeDeletion:
-		l.Info(fmt.Sprintf("proposing deletion for package revision %q", pr.Name))
 		return r.deletePackageRevision(ctx, pr, true)
 	case "", api.DeletionPolicyDelete:
-		l.Info(fmt.Sprintf("deleting package revision %q", pr.Name))
 		return r.deletePackageRevision(ctx, pr, false)
 	case api.DeletionPolicyOrphan:
 		l.Info(fmt.Sprintf("orphaning package revision %q", pr.Name))
@@ -474,23 +480,8 @@ func (r *PackageVariantReconciler) orphanPackageRevision(
 	pv *api.PackageVariant,
 ) error {
 	pr.ObjectMeta.OwnerReferences = removeOwnerRefByUID(pr.OwnerReferences, pv.UID)
-	if err := r.Client.Update(ctx, pr); err != nil {
+	if err := r.Client.Update(ctx, pr); client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("error orphaning package revision %q: %w", pr.Name, err)
 	}
 	return nil
-}
-
-func readinessGates(pv *api.PackageVariant) []porchapi.ReadinessGate {
-	result := pv.Spec.ReadinessGates
-	for _, m := range pv.Spec.Mutations {
-		result = append(result, porchapi.ReadinessGate{
-			ConditionType: m.ConditionType(pvPrefix(client.ObjectKeyFromObject(pv))),
-		})
-	}
-	if pv.Spec.ApprovalPolicy == api.ApprovalPolicyAlwaysWithManualEdits {
-		result = append(result, porchapi.ReadinessGate{
-			ConditionType: ConditionTypeManualEdits,
-		})
-	}
-	return result
 }
