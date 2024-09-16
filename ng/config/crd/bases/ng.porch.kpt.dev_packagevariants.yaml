@@ -62,10 +62,11 @@ spec:
                 - manualReadiness
                 type: string
               deletionPolicy:
-                default: delete
+                default: proposeDeletion
                 enum:
                 - delete
                 - orphan
+                - proposeDeletion
                 type: string
               downstream:
                 properties:

@@ -68,3 +68,15 @@ func CreateOrUpdate(objDB *fn.KubeObjects, defaultObj *fn.KubeObject, updater fu
 	}
 	return updater()
 }
+
+func UpdateStringFields(obj *fn.SubObject, values map[string]string) error {
+	for field, value := range values {
+		if obj.GetString(field) != value {
+			err := obj.SetNestedString(value, field)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

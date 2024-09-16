@@ -28,6 +28,7 @@ import (
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	"github.com/nephio-project/porch/internal/kpt/builtins"
 	"github.com/nephio-project/porch/internal/kpt/fnruntime"
+	"github.com/nephio-project/porch/ng/utils"
 	"github.com/nephio-project/porch/pkg/cache"
 	"github.com/nephio-project/porch/pkg/kpt"
 	kptfile "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
@@ -330,6 +331,7 @@ func (cad *cadEngine) CreatePackageRevision(ctx context.Context, repositoryObj *
 	if err != nil {
 		return nil, err
 	}
+
 	pkgRevMeta := meta.PackageRevisionMeta{
 		Name:            repoPkgRev.KubeObjectName(),
 		Namespace:       repoPkgRev.KubeObjectNamespace(),
@@ -423,6 +425,12 @@ func (cad *cadEngine) applyTasks(ctx context.Context, draft repository.PackageDr
 
 	// Render package after creation.
 	mutations = cad.conditionalAddRender(obj, mutations)
+
+	if len(obj.Spec.ReadinessGates) > 0 {
+		mutations = append(mutations, &addReadinessGatesMutation{
+			obj: obj,
+		})
+	}
 
 	baseResources := repository.PackageResources{}
 	if _, _, err := applyResourceMutations(ctx, draft, baseResources, mutations); err != nil {
@@ -1059,7 +1067,7 @@ func applyResourceMutations(ctx context.Context, draft repository.PackageDraft, 
 		if taskResult != nil {
 			task = taskResult.Task
 		}
-		if taskResult != nil && task.Type == api.TaskTypeEval {
+		if task != nil && task.Type == api.TaskTypeEval {
 			renderStatus = taskResult.RenderStatus
 		}
 		if err != nil {
@@ -1438,4 +1446,33 @@ func ExtractContextConfigMap(resources map[string]string) (*unstructured.Unstruc
 	}
 
 	return matches[0], nil
+}
+
+type addReadinessGatesMutation struct {
+	obj *api.PackageRevision
+}
+
+func (m *addReadinessGatesMutation) Apply(
+	ctx context.Context,
+	resources repository.PackageResources,
+) (
+	repository.PackageResources,
+	*api.TaskResult,
+	error,
+) {
+	kptfile, err := utils.NewKptfileFromResources(resources.Contents)
+	if err != nil {
+		return resources, nil, err
+	}
+	err = kptfile.AddReadinessGates(m.obj.Spec.ReadinessGates)
+	if err != nil {
+		return resources, nil, err
+	}
+
+	err = kptfile.WriteToResources(resources.Contents)
+	if err != nil {
+		return resources, nil, err
+	}
+
+	return resources, &api.TaskResult{}, nil
 }

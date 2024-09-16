@@ -15,6 +15,8 @@
 package v1alpha1
 
 import (
+	"fmt"
+
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	kptfile "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -76,8 +78,8 @@ type PackageVariantSpec struct {
 	//+default="adoptNone"
 	//+kubebuilder:validation:Enum=adoptExisting;adoptNone
 	AdoptionPolicy AdoptionPolicy `json:"adoptionPolicy,omitempty"`
-	//+default="delete"
-	//+kubebuilder:validation:Enum=delete;orphan
+	//+default="proposeDeletion"
+	//+kubebuilder:validation:Enum=delete;orphan;proposeDeletion
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
 	//+default="never"
 	//+kubebuilder:validation:Enum=never;always;initial;manualReadiness
@@ -222,6 +224,10 @@ func init() {
 
 func (m *Mutation) Id() string {
 	return m.Manager + "/" + m.Name
+}
+
+func (m *Mutation) ConditionType(pvPrefix string) string {
+	return fmt.Sprintf("mutation:%s/%s", pvPrefix, m.Id())
 }
 
 var (

@@ -40,6 +40,7 @@ RUN go build -v \
 COPY ./api ./api
 COPY ./cmd ./cmd
 COPY ./pkg ./pkg
+COPY ./ng ./ng
 COPY ./internal ./internal
 COPY ./controllers ./controllers
 COPY ./func ./func

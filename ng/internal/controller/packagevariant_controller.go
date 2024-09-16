@@ -18,13 +18,11 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strconv"
-	"strings"
 
 	"github.com/go-logr/logr"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	"github.com/nephio-project/porch/ng/internal/utils"
+	"github.com/nephio-project/porch/ng/utils"
 
 	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
 	"github.com/nephio-project/porch/pkg/kpt/kptfileutil"
@@ -43,8 +41,9 @@ import (
 
 // PackageVariantReconciler reconciles a PackageVariant object
 const (
-	fieldOwner          = "ng-packagevariant" // field owner for server-side applies
-	workspaceNamePrefix = "packagevariant-"
+	fieldOwner               = "ng-packagevariant" // field owner for server-side applies
+	workspaceNamePrefix      = "packagevariant-"
+	ConditionTypeManualEdits = "ManualEditsReady"
 )
 
 type PackageVariantReconciler struct {
@@ -92,11 +91,19 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// (b) we may want to orphan packagerevisions instead of deleting them.
 		for _, pr := range utils.PackageRevisionsFromContextOrDie(ctx) {
 			if r.hasOurOwnerReference(pv, pr.OwnerReferences) {
-				r.deleteOrOrphan(ctx, &pr, pv)
+				err := r.deleteOrOrphan(ctx, &pr, pv)
+				if err != nil {
+					setReadyCondition(pv, err)
+					return ctrl.Result{}, err
+				}
 				if pr.Spec.Lifecycle == porchapi.PackageRevisionLifecycleDeletionProposed {
 					// We need to orphan this package revision; otherwise it will automatically
 					// get deleted after its parent PackageVariant object is deleted.
-					r.orphanPackageRevision(ctx, &pr, pv)
+					err := r.orphanPackageRevision(ctx, &pr, pv)
+					if err != nil {
+						setReadyCondition(pv, err)
+						return ctrl.Result{}, err
+					}
 				}
 			}
 		}
@@ -179,19 +186,24 @@ func (r *PackageVariantReconciler) UpdateStatus(ctx context.Context, pv *api.Pac
 	})
 }
 
+// NOTE: in theory all of this is taken care of by CRD field validations in the kube-apiserver
+// leave it here for now, in case we need to add more validation in the future
 func validatePackageVariant(pv *api.PackageVariant) error {
 	errors := utils.CombinedError{Joiner: "; "}
 	if pv.Spec.AdoptionPolicy == "" {
 		pv.Spec.AdoptionPolicy = api.AdoptionPolicyAdoptNone
 	}
 	if pv.Spec.DeletionPolicy == "" {
-		pv.Spec.DeletionPolicy = api.DeletionPolicyDelete
+		pv.Spec.DeletionPolicy = api.DeletionPolicyProposeDeletion
 	}
 	if pv.Spec.AdoptionPolicy != api.AdoptionPolicyAdoptNone && pv.Spec.AdoptionPolicy != api.AdoptionPolicyAdoptExisting {
 		errors.Addf("spec.adoptionPolicy field can only be %q or %q", api.AdoptionPolicyAdoptNone, api.AdoptionPolicyAdoptExisting)
 	}
-	if pv.Spec.DeletionPolicy != api.DeletionPolicyOrphan && pv.Spec.DeletionPolicy != api.DeletionPolicyDelete {
-		errors.Addf("spec.deletionPolicy can only be %q or %q", api.DeletionPolicyOrphan, api.DeletionPolicyDelete)
+	switch pv.Spec.DeletionPolicy {
+	case api.DeletionPolicyDelete, api.DeletionPolicyOrphan, api.DeletionPolicyProposeDeletion:
+		// ok
+	default:
+		errors.Addf("spec.deletionPolicy field can only be %q, %q, or %q", api.DeletionPolicyDelete, api.DeletionPolicyOrphan, api.DeletionPolicyProposeDeletion)
 	}
 	return errors.ErrorOrNil("")
 }
@@ -327,28 +339,8 @@ func removeOwnerRefByUID(ownerRefs []metav1.OwnerReference,
 	return result
 }
 
-func newWorkspaceName(
-	ctx context.Context,
-	packageName string,
-	repo string,
-) porchapi.WorkspaceName {
-	wsNum := 0
-	for _, pr := range utils.PackageRevisionsFromContextOrDie(ctx) {
-		if pr.Spec.PackageName != packageName || pr.Spec.RepositoryName != repo {
-			continue
-		}
-		oldWorkspaceName := string(pr.Spec.WorkspaceName)
-		if !strings.HasPrefix(oldWorkspaceName, workspaceNamePrefix) {
-			continue
-		}
-		wsNumStr := strings.TrimPrefix(oldWorkspaceName, workspaceNamePrefix)
-		newWsNum, _ := strconv.Atoi(wsNumStr)
-		if newWsNum > wsNum {
-			wsNum = newWsNum
-		}
-	}
-	wsNum++
-	return porchapi.WorkspaceName(fmt.Sprintf(workspaceNamePrefix+"%d", wsNum))
+func newWorkspaceName(ctx context.Context, packageName string, repo string) porchapi.WorkspaceName {
+	return utils.PackageRevisionsFromContextOrDie(ctx).OfPackage(repo, packageName).NewWorkspaceName(workspaceNamePrefix)
 }
 
 func constructOwnerReference(pv *api.PackageVariant) metav1.OwnerReference {
