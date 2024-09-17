@@ -19,6 +19,7 @@ WORKDIR /go/src
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 COPY go.mod go.sum ./
+COPY ./kpt-functions-sdk ./kpt-functions-sdk
 
 RUN echo "Downloading porch modules ..." \
  && go mod download

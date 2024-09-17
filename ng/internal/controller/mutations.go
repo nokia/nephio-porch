@@ -83,6 +83,12 @@ func ensureMutations(
 			target.mutationStatus[i].Applied = true
 			continue
 
+		case api.MutationTypeInjectInlineObject:
+			mutator = &injectInlineObject{
+				mutation: &mutation,
+				pvKey:    client.ObjectKeyFromObject(pv),
+			}
+
 		default:
 			target.mutationStatus[i].Applied = false
 			target.mutationStatus[i].Message = fmt.Sprintf("unsupported mutation type: %s", mutation.Type)
@@ -237,5 +243,26 @@ func setMutationConditions(
 			))
 		}
 	}
+	ensureManualEditCondition(kptfile, target)
 	kptfile.WriteToResources(prr.Spec.Resources)
+}
+
+func ensureManualEditCondition(kptfile *utils.KptfileObject, target *downstreamTarget) {
+	manuelEditRequired := false
+	for _, gate := range target.pr.Spec.ReadinessGates {
+		if gate.ConditionType == ConditionTypeManualEdits {
+			manuelEditRequired = true
+			break
+		}
+	}
+	if manuelEditRequired {
+		_, ok := kptfile.GetTypedCondition(ConditionTypeManualEdits)
+		if !ok {
+			kptfile.SetTypedCondition(ConditionFromStatus(
+				ConditionTypeManualEdits,
+				false,
+				"Manual edits are required",
+			))
+		}
+	}
 }

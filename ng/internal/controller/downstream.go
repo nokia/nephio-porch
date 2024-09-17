@@ -438,16 +438,33 @@ func (r *PackageVariantReconciler) copyPublished(
 			Labels:          pv.Spec.Labels,
 			Annotations:     pv.Spec.Annotations,
 		},
-		Spec: source.Spec,
+		Spec: porchapi.PackageRevisionSpec{
+			RepositoryName: source.Spec.RepositoryName,
+			PackageName:    source.Spec.PackageName,
+			Revision:       "",
+			WorkspaceName:  newWorkspaceName(ctx, source.Spec.PackageName, source.Spec.RepositoryName),
+			Lifecycle:      porchapi.PackageRevisionLifecycleDraft,
+			ReadinessGates: source.Spec.ReadinessGates,
+			Tasks: []porchapi.Task{
+				{
+					Type: porchapi.TaskTypeEdit,
+					Edit: &porchapi.PackageEditTaskSpec{
+						Source: &porchapi.PackageRevisionRef{
+							Name: source.Name,
+						},
+					},
+				},
+			},
+		},
 	}
 
-	newPR.Spec.Revision = ""
-	newPR.Spec.WorkspaceName = newWorkspaceName(ctx, newPR.Spec.PackageName, newPR.Spec.RepositoryName)
-	newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDraft
+	// newPR.Spec.Revision = ""
+	// newPR.Spec.WorkspaceName = newWorkspaceName(ctx, newPR.Spec.PackageName, newPR.Spec.RepositoryName)
+	// newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDraft
 
 	if err := r.Client.Create(ctx, newPR); err != nil {
 		l.Error(err, fmt.Sprintf("failed to copy %q", source.Name))
-		return nil, err
+		return source, err
 	}
 	l.Info(fmt.Sprintf("created package revision %q based on %q", newPR.Name, source.Name))
 	return newPR, nil

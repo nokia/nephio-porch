@@ -87,6 +87,7 @@ func readinessGates(pv *api.PackageVariant) []porchapi.ReadinessGate {
 			ConditionType: ConditionTypeManualEdits,
 		})
 	}
+	// TODO: add readiness gates for mandatory injection points
 	return result
 }
 

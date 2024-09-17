@@ -33,8 +33,8 @@ func (t *PvSuite) TestInjectPackage(ctx context.Context) {
 		upstreamRepository   = "test-blueprints"
 	)
 
-	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
 	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
+	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
 
 	t.Log("Testing PackageVariant with InjectPackageRevision mutations")
 	pv := &api.PackageVariant{
@@ -124,8 +124,9 @@ func (t *PvSuite) TestInjectLatestRevision(ctx context.Context) {
 		upstreamRepository   = "test-blueprints"
 	)
 
-	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
+	// TODO: if blueprints are de-registered before target repo, it leaves PackageRev objects behind
 	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
+	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
 
 	t.Log("** Creating PackageVariant (PV1) with InjectLatestPackageRevision mutations")
 	pv1 := &api.PackageVariant{

@@ -59,7 +59,7 @@ spec:
                 - never
                 - always
                 - initial
-                - manualReadiness
+                - afterManualEdits
                 type: string
               deletionPolicy:
                 default: proposeDeletion
@@ -311,6 +311,9 @@ spec:
                             type: object
                           type: array
                       type: object
+                    injectInlineObject:
+                      description: Data for "InjectInlineObject" type
+                      type: string
                     injectLatestPackageRevision:
                       description: Data for "InjectLatestPackageRevision" type
                       properties:
@@ -327,7 +330,7 @@ spec:
                       - repo
                       type: object
                     injectLiveObject:
-                      description: Data for "AppendPipeline" type
+                      description: Data for "InjectLiveObject" type
                       properties:
                         destination:
                           properties:
@@ -355,6 +358,43 @@ spec:
                           type: string
                       required:
                       - destination
+                      - source
+                      type: object
+                    injectObjectFromPackage:
+                      description: Data for "InjectObjectFromPackage" type
+                      properties:
+                        destination:
+                          description: The name/namespace of the injection point
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        package:
+                          type: string
+                        repo:
+                          type: string
+                        revision:
+                          type: string
+                        source:
+                          description: The name/namespace of the KRM object in the
+                            package
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      required:
+                      - destination
+                      - package
+                      - repo
+                      - revision
                       - source
                       type: object
                     injectPackageRevision:
@@ -608,11 +648,14 @@ spec:
                     type:
                       description: Type selector enum for the union type
                       enum:
+                      - PrependPipeline
+                      - AppendPipeline
                       - InjectPackageRevision
                       - InjectLatestPackageRevision
                       - InjectObject
-                      - PrependPipeline
-                      - AppendPipeline
+                      - InjectLiveObject
+                      - InjectInlineObject
+                      - InjectObjectFromPackage
                       type: string
                   required:
                   - name
@@ -626,6 +669,11 @@ spec:
                     rule: self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)
                   - message: injectLiveObject field is mandatory if type == InjectLiveObject
                     rule: self.type != 'InjectLiveObject' || has(self.injectLiveObject)
+                  - message: injectInlineObject field is mandatory if type == InjectInlineObject
+                    rule: self.type != 'InjectInlineObject' || has(self.injectInlineObject)
+                  - message: injectObjectFromPackage field is mandatory if type ==
+                      InjectObjectFromPackage
+                    rule: self.type != 'InjectObjectFromPackage' || has(self.injectObjectFromPackage)
                   - message: prependPipeline field is mandatory if type == PrependPipeline
                     rule: self.type != 'PrependPipeline' || has(self.prependPipeline)
                   - message: appendPipeline field is mandatory if type == AppendPipeline

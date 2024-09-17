@@ -21,6 +21,7 @@ WORKDIR /go/src
 # and so that source changes don't invalidate our downloaded layer
 
 COPY go.mod go.sum ./
+COPY ./kpt-functions-sdk ./kpt-functions-sdk
 
 RUN echo "Downloading porch modules ..." \
  && go mod download
@@ -40,10 +41,10 @@ RUN go build -v \
 COPY ./api ./api
 COPY ./cmd ./cmd
 COPY ./pkg ./pkg
-COPY ./ng ./ng
 COPY ./internal ./internal
 COPY ./controllers ./controllers
 COPY ./func ./func
+COPY ./ng ./ng
 
 RUN go build -v -o /porch ./cmd/porch
 

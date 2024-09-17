@@ -80,6 +80,7 @@ func (m *injectSubPackage) Apply(ctx context.Context, prr *porchapi.PackageRevis
 	if repo.Spec.Git == nil {
 		return fmt.Errorf("injecting sub-packages is only supported from git repositories, but %q is not a Git repository", cfg.Repo)
 	}
+
 	// find sub-packages that was injected by us previously
 	kobjs, _, err := utils.ReadKubeObjects(prr.Spec.Resources)
 	if err != nil {

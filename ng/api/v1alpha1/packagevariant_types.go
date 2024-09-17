@@ -63,7 +63,7 @@ const (
 	ApprovalPolicyNever                 ApprovalPolicy = "never"
 	ApprovalPolicyAlways                ApprovalPolicy = "always"
 	ApprovalPolicyInitial               ApprovalPolicy = "initial"
-	ApprovalPolicyAlwaysWithManualEdits ApprovalPolicy = "alwaysWithManualEdits"
+	ApprovalPolicyAlwaysWithManualEdits ApprovalPolicy = "afterManualEdits"
 
 	Finalizer = "config.porch.kpt.dev/packagevariants"
 )
@@ -82,7 +82,7 @@ type PackageVariantSpec struct {
 	//+kubebuilder:validation:Enum=delete;orphan;proposeDeletion
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
 	//+default="never"
-	//+kubebuilder:validation:Enum=never;always;initial;manualReadiness
+	//+kubebuilder:validation:Enum=never;always;initial;afterManualEdits
 	ApprovalPolicy ApprovalPolicy `json:"approvalPolicy,omitempty"`
 	// Readiness gates added to downstream packages
 	ReadinessGates []porchapi.ReadinessGate `json:"readinessGates,omitempty"`
@@ -100,59 +100,6 @@ type PackageVariantSpec struct {
 	// The ServiceAccount to use when trying to access resources in other namespaces
 	//+default="default"
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
-}
-
-type MutationType string
-
-const (
-	MutationTypeInjectPackageRevision       MutationType = "InjectPackageRevision"
-	MutationTypeInjectLatestPackageRevision MutationType = "InjectLatestPackageRevision"
-	MutationTypeInjectLiveObject            MutationType = "InjectLiveObject"
-	MutationTypePrependPipeline             MutationType = "PrependPipeline"
-	MutationTypeAppendPipeline              MutationType = "AppendPipeline"
-)
-
-// A mutation that should be applied to the downstream package
-// +kubebuilder:validation:XValidation:message="injectPackageRevision field is mandatory if type == InjectPackageRevision",rule="self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)"
-// +kubebuilder:validation:XValidation:message="injectLatestPackageRevision field is mandatory if type == InjectLatestPackageRevision",rule="self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)"
-// +kubebuilder:validation:XValidation:message="injectLiveObject field is mandatory if type == InjectLiveObject",rule="self.type != 'InjectLiveObject' || has(self.injectLiveObject)"
-// +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
-// +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
-type Mutation struct {
-	// Name and Manager fields together must uniquely identify a mutation in the scope of a PackageVariant object.
-	//+required
-	Name string `json:"name,omitempty"`
-	// Name of the controller that manages the mutation (may be empty)
-	//+default=""
-	Manager string `json:"manager,omitempty"`
-	// Type selector enum for the union type
-	//+required
-	//+kubebuilder:validation:Enum=InjectPackageRevision;InjectLatestPackageRevision;InjectObject;PrependPipeline;AppendPipeline
-	Type MutationType `json:"type,omitempty"`
-	// Data for "InjectPackageRevision" type
-	InjectPackageRevision *InjectPackageRevision `json:"injectPackageRevision,omitempty"`
-	// Data for "InjectLatestPackageRevision" type
-	InjectLatestPackageRevision *InjectLatestPackageRevision `json:"injectLatestPackageRevision,omitempty"`
-	// Data for "AppendPipeline" type
-	InjectLiveObject *InjectLiveObject `json:"injectLiveObject,omitempty"`
-	// Data for "PrependPipeline" type
-	PrependPipeline *kptfile.Pipeline `json:"prependPipeline,omitempty"`
-	// Data for "AppendPipeline" type
-	AppendPipeline *kptfile.Pipeline `json:"appendPipeline,omitempty"`
-}
-
-type InjectPackageRevision struct {
-	// The package revision to be inserted into the downstream package.
-	PackageRevisionRef `json:",inline"`
-	// The path within the downstream package to insert the package.
-	Subdir string `json:"subdir,omitempty"`
-}
-
-type InjectLatestPackageRevision struct {
-	// The package revision to be inserted into the downstream package.
-	PackageRef `json:",inline"`
-	// The path within the downstream package to insert the package.
-	Subdir string `json:"subdir,omitempty"`
 }
 
 type PackageRevisionRef struct {
@@ -176,6 +123,67 @@ type ObjectRef struct {
 	Name      string  `json:"name"`
 }
 
+type MutationType string
+
+const (
+	MutationTypeInjectPackageRevision       MutationType = "InjectPackageRevision"
+	MutationTypeInjectLatestPackageRevision MutationType = "InjectLatestPackageRevision"
+	MutationTypeInjectLiveObject            MutationType = "InjectLiveObject"
+	MutationTypeInjectInlineObject          MutationType = "InjectInlineObject"
+	MutationTypeInjectObjectFromPackage     MutationType = "InjectObjectFromPackage"
+	MutationTypePrependPipeline             MutationType = "PrependPipeline"
+	MutationTypeAppendPipeline              MutationType = "AppendPipeline"
+)
+
+// A mutation that should be applied to the downstream package
+// +kubebuilder:validation:XValidation:message="injectPackageRevision field is mandatory if type == InjectPackageRevision",rule="self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)"
+// +kubebuilder:validation:XValidation:message="injectLatestPackageRevision field is mandatory if type == InjectLatestPackageRevision",rule="self.type != 'InjectLatestPackageRevision' || has(self.injectLatestPackageRevision)"
+// +kubebuilder:validation:XValidation:message="injectLiveObject field is mandatory if type == InjectLiveObject",rule="self.type != 'InjectLiveObject' || has(self.injectLiveObject)"
+// +kubebuilder:validation:XValidation:message="injectInlineObject field is mandatory if type == InjectInlineObject",rule="self.type != 'InjectInlineObject' || has(self.injectInlineObject)"
+// +kubebuilder:validation:XValidation:message="injectObjectFromPackage field is mandatory if type == InjectObjectFromPackage",rule="self.type != 'InjectObjectFromPackage' || has(self.injectObjectFromPackage)"
+// +kubebuilder:validation:XValidation:message="prependPipeline field is mandatory if type == PrependPipeline",rule="self.type != 'PrependPipeline' || has(self.prependPipeline)"
+// +kubebuilder:validation:XValidation:message="appendPipeline field is mandatory if type == AppendPipeline",rule="self.type != 'AppendPipeline' || has(self.appendPipeline)"
+type Mutation struct {
+	// Name and Manager fields together must uniquely identify a mutation in the scope of a PackageVariant object.
+	//+required
+	Name string `json:"name,omitempty"`
+	// Name of the controller that manages the mutation (may be empty)
+	//+default=""
+	Manager string `json:"manager,omitempty"`
+	// Type selector enum for the union type
+	//+required
+	//+kubebuilder:validation:Enum=PrependPipeline;AppendPipeline;InjectPackageRevision;InjectLatestPackageRevision;InjectObject;InjectLiveObject;InjectInlineObject;InjectObjectFromPackage
+	Type MutationType `json:"type,omitempty"`
+	// Data for "InjectPackageRevision" type
+	InjectPackageRevision *InjectPackageRevision `json:"injectPackageRevision,omitempty"`
+	// Data for "InjectLatestPackageRevision" type
+	InjectLatestPackageRevision *InjectLatestPackageRevision `json:"injectLatestPackageRevision,omitempty"`
+	// Data for "InjectLiveObject" type
+	InjectLiveObject *InjectLiveObject `json:"injectLiveObject,omitempty"`
+	// Data for "InjectInlineObject" type
+	InjectInlineObject string `json:"injectInlineObject,omitempty"`
+	// Data for "InjectObjectFromPackage" type
+	InjectObjectFromPackage *InjectObjectFromPackage `json:"injectObjectFromPackage,omitempty"`
+	// Data for "PrependPipeline" type
+	PrependPipeline *kptfile.Pipeline `json:"prependPipeline,omitempty"`
+	// Data for "AppendPipeline" type
+	AppendPipeline *kptfile.Pipeline `json:"appendPipeline,omitempty"`
+}
+
+type InjectPackageRevision struct {
+	// The package revision to be inserted into the downstream package.
+	PackageRevisionRef `json:",inline"`
+	// The path within the downstream package to insert the package.
+	Subdir string `json:"subdir,omitempty"`
+}
+
+type InjectLatestPackageRevision struct {
+	// The package revision to be inserted into the downstream package.
+	PackageRef `json:",inline"`
+	// The path within the downstream package to insert the package.
+	Subdir string `json:"subdir,omitempty"`
+}
+
 // InjectLiveObject specifies how to select in-cluster objects for
 // resolving injection points.
 type InjectLiveObject struct {
@@ -183,6 +191,22 @@ type InjectLiveObject struct {
 	Version     *string   `json:"version,omitempty"`
 	Kind        *string   `json:"kind,omitempty"`
 	Source      ObjectRef `json:"source"`
+	Destination ObjectRef `json:"destination"`
+}
+
+// // Inject the specified object that must match with an injection point
+// type InjectInlineObject struct {
+
+// 	//+kubebuilder:pruning:PreserveUnknownFields
+// 	Object runtime.RawExtension `json:"object"`
+// }
+
+type InjectObjectFromPackage struct {
+	// The package revision containing the object to be injected
+	PackageRevisionRef `json:",inline"`
+	// The name/namespace of the KRM object in the package
+	Source ObjectRef `json:"source"`
+	// The name/namespace of the injection point
 	Destination ObjectRef `json:"destination"`
 }
 
