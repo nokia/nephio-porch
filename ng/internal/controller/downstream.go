@@ -458,6 +458,14 @@ func (r *PackageVariantReconciler) copyPublished(
 		},
 	}
 
+	// TODO[kispaljr] - modify porch ReadinessGates mutation, so that it is replay-able
+	// (i.e. it is always injected as second (right after clone))
+	// or introduce the SyncReadinessGates task and record it in the task list
+
+	// TODO[kispaljr] - make commit history human readable
+
+	// TODO[kispaljr] - k delete -f 03  + k apply -f 03 will result in a "deletion proposed" downstream package
+
 	// newPR.Spec.Revision = ""
 	// newPR.Spec.WorkspaceName = newWorkspaceName(ctx, newPR.Spec.PackageName, newPR.Spec.RepositoryName)
 	// newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDraft

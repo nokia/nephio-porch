@@ -124,7 +124,7 @@ func (t *PvSuite) TestInjectLatestRevision(ctx context.Context) {
 		upstreamRepository   = "test-blueprints"
 	)
 
-	// TODO: if blueprints are de-registered before target repo, it leaves PackageRev objects behind
+	// TODO[kispaljr]: if blueprints are de-registered before target repo, it leaves PackageRev objects behind
 	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
 	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
 
