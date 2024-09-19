@@ -38,7 +38,7 @@ import (
 
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
-	pvctrl "github.com/nephio-project/porch/ng/internal/controller"
+	ngctrl "github.com/nephio-project/porch/ng/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -155,10 +155,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&pvctrl.PackageVariantReconciler{
+	if err = (&ngctrl.PackageVariantReconciler{
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PackageVariant")
+		os.Exit(1)
+	}
+	if err = (&ngctrl.MutationInjectorReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MutationInjector")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

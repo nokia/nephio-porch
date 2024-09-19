@@ -15,6 +15,15 @@ resources:
   domain: porch.kpt.dev
   group: ng
   kind: PackageVariant
-  path: github.com/nephio-project/porch/api/v1alpha1
+  path: github.com/nephio-project/porch/ng/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: porch.kpt.dev
+  group: ng
+  kind: MutationInjector
+  path: github.com/nephio-project/porch/ng/api/v1alpha1
   version: v1alpha1
 version: "3"

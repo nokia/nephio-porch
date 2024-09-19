@@ -39,6 +39,32 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ng.porch.kpt.dev
+  resources:
+  - mutationinjectors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ng.porch.kpt.dev
+  resources:
+  - mutationinjectors/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ng.porch.kpt.dev
+  resources:
+  - mutationinjectors/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - porch.kpt.dev
   resources:
   - packagerevisionresources
