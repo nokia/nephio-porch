@@ -37,14 +37,9 @@ type addToPipeline struct {
 var _ mutator = &addToPipeline{}
 
 func (m *addToPipeline) Apply(ctx context.Context, prr *porchapi.PackageRevisionResources) error {
-	newPipeline := make(map[string][]kptfilev1.Function)
-	switch m.mutation.Type {
-	case api.MutationTypePrependPipeline:
-		newPipeline["validators"] = m.mutation.PrependPipeline.Validators
-		newPipeline["mutators"] = m.mutation.PrependPipeline.Mutators
-	case api.MutationTypeAppendPipeline:
-		newPipeline["validators"] = m.mutation.AppendPipeline.Validators
-		newPipeline["mutators"] = m.mutation.AppendPipeline.Mutators
+	newPipeline := map[string][]kptfilev1.Function{
+		"validators": m.mutation.Pipeline.Validators,
+		"mutators":   m.mutation.Pipeline.Mutators,
 	}
 
 	// parse kptfile

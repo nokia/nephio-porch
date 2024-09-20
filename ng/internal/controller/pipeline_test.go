@@ -67,7 +67,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
@@ -82,7 +82,7 @@ spec:
 				{
 					Type: api.MutationTypeAppendPipeline,
 					Name: "append-functions",
-					AppendPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
@@ -128,7 +128,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
@@ -169,7 +169,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
@@ -228,7 +228,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Mutators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/set-namespace:v0.1",
@@ -267,7 +267,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/validate-name:undefined",
@@ -298,7 +298,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
 								Image: "gcr.io/kpt-fn/validate-name:undefined",
@@ -348,7 +348,7 @@ spec:
 				{
 					Type: api.MutationTypePrependPipeline,
 					Name: "prepend-functions",
-					PrependPipeline: &kptfile.Pipeline{
+					Pipeline: &kptfile.Pipeline{
 						Validators: []kptfile.Function{
 							{
 								Image: "gcr.io/val3",

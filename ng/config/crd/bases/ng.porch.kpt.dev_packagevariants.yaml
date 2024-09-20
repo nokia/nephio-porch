@@ -90,226 +90,17 @@ spec:
                   description: A mutation that should be applied to the downstream
                     package
                   properties:
-                    appendPipeline:
-                      description: Data for "AppendPipeline" type
+                    custom:
+                      description: Data for "Custom" type
                       properties:
-                        mutators:
-                          description: Mutators defines a list of of KRM functions
-                            that mutate resources.
-                          items:
-                            description: Function specifies a KRM function.
-                            properties:
-                              configMap:
-                                additionalProperties:
-                                  type: string
-                                description: '`ConfigMap` is a convenient way to specify
-                                  a function config of kind ConfigMap.'
-                                type: object
-                              configPath:
-                                description: |-
-                                  `ConfigPath` specifies a slash-delimited relative path to a file in the current directory
-                                  containing a KRM resource used as the function config. This resource is
-                                  excluded when resolving 'sources', and as a result cannot be operated on
-                                  by the pipeline.
-                                type: string
-                              exclude:
-                                description: |-
-                                  `Exclude` are used to specify resources on which the function should NOT be executed.
-                                  If not specified, all resources selected by `Selectors` are selected.
-                                items:
-                                  description: |-
-                                    Selector specifies the selection criteria
-                                    please update IsEmpty method if more properties are added
-                                  properties:
-                                    annotations:
-                                      additionalProperties:
-                                        type: string
-                                      description: Annotations on the target resources
-                                      type: object
-                                    apiVersion:
-                                      description: APIVersion of the target resources
-                                      type: string
-                                    kind:
-                                      description: Kind of the target resources
-                                      type: string
-                                    labels:
-                                      additionalProperties:
-                                        type: string
-                                      description: Labels on the target resources
-                                      type: object
-                                    name:
-                                      description: Name of the target resources
-                                      type: string
-                                    namespace:
-                                      description: Namespace of the target resources
-                                      type: string
-                                  type: object
-                                type: array
-                              exec:
-                                description: "Exec specifies the function binary executable.\nThe
-                                  executable can be fully qualified or it must exists
-                                  in the $PATH e.g:\n\n\t exec: set-namespace\n\t
-                                  exec: /usr/local/bin/my-custom-fn"
-                                type: string
-                              image:
-                                description: "`Image` specifies the function container
-                                  image.\nIt can either be fully qualified, e.g.:\n\n\timage:
-                                  gcr.io/kpt-fn/set-labels\n\nOptionally, kpt can
-                                  be configured to use a image\nregistry host-path
-                                  that will be used to resolve the image path in case\nthe
-                                  image path is missing (Defaults to gcr.io/kpt-fn).\ne.g.
-                                  The following resolves to gcr.io/kpt-fn/set-labels:\n\n\timage:
-                                  set-labels"
-                                type: string
-                              name:
-                                description: |-
-                                  `Name` is used to uniquely identify the function declaration
-                                  this is primarily used for merging function declaration with upstream counterparts
-                                type: string
-                              selectors:
-                                description: |-
-                                  `Selectors` are used to specify resources on which the function should be executed
-                                  if not specified, all resources are selected
-                                items:
-                                  description: |-
-                                    Selector specifies the selection criteria
-                                    please update IsEmpty method if more properties are added
-                                  properties:
-                                    annotations:
-                                      additionalProperties:
-                                        type: string
-                                      description: Annotations on the target resources
-                                      type: object
-                                    apiVersion:
-                                      description: APIVersion of the target resources
-                                      type: string
-                                    kind:
-                                      description: Kind of the target resources
-                                      type: string
-                                    labels:
-                                      additionalProperties:
-                                        type: string
-                                      description: Labels on the target resources
-                                      type: object
-                                    name:
-                                      description: Name of the target resources
-                                      type: string
-                                    namespace:
-                                      description: Namespace of the target resources
-                                      type: string
-                                  type: object
-                                type: array
-                            type: object
-                          type: array
-                        validators:
-                          description: |-
-                            Validators defines a list of KRM functions that validate resources.
-                            Validators are not permitted to mutate resources.
-                          items:
-                            description: Function specifies a KRM function.
-                            properties:
-                              configMap:
-                                additionalProperties:
-                                  type: string
-                                description: '`ConfigMap` is a convenient way to specify
-                                  a function config of kind ConfigMap.'
-                                type: object
-                              configPath:
-                                description: |-
-                                  `ConfigPath` specifies a slash-delimited relative path to a file in the current directory
-                                  containing a KRM resource used as the function config. This resource is
-                                  excluded when resolving 'sources', and as a result cannot be operated on
-                                  by the pipeline.
-                                type: string
-                              exclude:
-                                description: |-
-                                  `Exclude` are used to specify resources on which the function should NOT be executed.
-                                  If not specified, all resources selected by `Selectors` are selected.
-                                items:
-                                  description: |-
-                                    Selector specifies the selection criteria
-                                    please update IsEmpty method if more properties are added
-                                  properties:
-                                    annotations:
-                                      additionalProperties:
-                                        type: string
-                                      description: Annotations on the target resources
-                                      type: object
-                                    apiVersion:
-                                      description: APIVersion of the target resources
-                                      type: string
-                                    kind:
-                                      description: Kind of the target resources
-                                      type: string
-                                    labels:
-                                      additionalProperties:
-                                        type: string
-                                      description: Labels on the target resources
-                                      type: object
-                                    name:
-                                      description: Name of the target resources
-                                      type: string
-                                    namespace:
-                                      description: Namespace of the target resources
-                                      type: string
-                                  type: object
-                                type: array
-                              exec:
-                                description: "Exec specifies the function binary executable.\nThe
-                                  executable can be fully qualified or it must exists
-                                  in the $PATH e.g:\n\n\t exec: set-namespace\n\t
-                                  exec: /usr/local/bin/my-custom-fn"
-                                type: string
-                              image:
-                                description: "`Image` specifies the function container
-                                  image.\nIt can either be fully qualified, e.g.:\n\n\timage:
-                                  gcr.io/kpt-fn/set-labels\n\nOptionally, kpt can
-                                  be configured to use a image\nregistry host-path
-                                  that will be used to resolve the image path in case\nthe
-                                  image path is missing (Defaults to gcr.io/kpt-fn).\ne.g.
-                                  The following resolves to gcr.io/kpt-fn/set-labels:\n\n\timage:
-                                  set-labels"
-                                type: string
-                              name:
-                                description: |-
-                                  `Name` is used to uniquely identify the function declaration
-                                  this is primarily used for merging function declaration with upstream counterparts
-                                type: string
-                              selectors:
-                                description: |-
-                                  `Selectors` are used to specify resources on which the function should be executed
-                                  if not specified, all resources are selected
-                                items:
-                                  description: |-
-                                    Selector specifies the selection criteria
-                                    please update IsEmpty method if more properties are added
-                                  properties:
-                                    annotations:
-                                      additionalProperties:
-                                        type: string
-                                      description: Annotations on the target resources
-                                      type: object
-                                    apiVersion:
-                                      description: APIVersion of the target resources
-                                      type: string
-                                    kind:
-                                      description: Kind of the target resources
-                                      type: string
-                                    labels:
-                                      additionalProperties:
-                                        type: string
-                                      description: Labels on the target resources
-                                      type: object
-                                    name:
-                                      description: Name of the target resources
-                                      type: string
-                                    namespace:
-                                      description: Namespace of the target resources
-                                      type: string
-                                  type: object
-                                type: array
-                            type: object
-                          type: array
+                        kind:
+                          description: unique identifier of the custom mutation type
+                          type: string
+                        parameters:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                      required:
+                      - kind
                       type: object
                     injectInlineObject:
                       description: Data for "InjectInlineObject" type
@@ -420,12 +211,33 @@ spec:
                       description: Name of the controller that manages the mutation
                         (may be empty)
                       type: string
+                    mergePackageRevision:
+                      description: Data for "MergePackageRevision" type
+                      properties:
+                        overwrite:
+                          default: true
+                          description: |-
+                            If false: keep conflicting resources from the upstream package,
+                            overwrite them otherwise.
+                          type: boolean
+                        package:
+                          type: string
+                        repo:
+                          type: string
+                        revision:
+                          type: string
+                      required:
+                      - package
+                      - repo
+                      - revision
+                      type: object
                     name:
                       description: Name and Manager fields together must uniquely
                         identify a mutation in the scope of a PackageVariant object.
                       type: string
-                    prependPipeline:
-                      description: Data for "PrependPipeline" type
+                    pipeline:
+                      description: Data for "PrependPipeline" and "AppendPipeline"
+                        types
                       properties:
                         mutators:
                           description: Mutators defines a list of of KRM functions
@@ -648,8 +460,10 @@ spec:
                     type:
                       description: Type selector enum for the union type
                       enum:
+                      - Custom
                       - PrependPipeline
                       - AppendPipeline
+                      - MergePackageRevision
                       - InjectPackageRevision
                       - InjectLatestPackageRevision
                       - InjectObject
@@ -662,6 +476,10 @@ spec:
                   - type
                   type: object
                   x-kubernetes-validations:
+                  - message: custom field is mandatory if type == Custom
+                    rule: self.type != 'Custom' || has(self.custom)
+                  - message: mergePackageRevision field is mandatory if type == MergePackageRevision
+                    rule: self.type != 'MergePackageRevision' || has(self.mergePackageRevision)
                   - message: injectPackageRevision field is mandatory if type == InjectPackageRevision
                     rule: self.type != 'InjectPackageRevision' || has(self.injectPackageRevision)
                   - message: injectLatestPackageRevision field is mandatory if type
@@ -674,10 +492,10 @@ spec:
                   - message: injectObjectFromPackage field is mandatory if type ==
                       InjectObjectFromPackage
                     rule: self.type != 'InjectObjectFromPackage' || has(self.injectObjectFromPackage)
-                  - message: prependPipeline field is mandatory if type == PrependPipeline
-                    rule: self.type != 'PrependPipeline' || has(self.prependPipeline)
-                  - message: appendPipeline field is mandatory if type == AppendPipeline
-                    rule: self.type != 'AppendPipeline' || has(self.appendPipeline)
+                  - message: pipeline field is mandatory if type == PrependPipeline
+                    rule: self.type != 'PrependPipeline' || has(self.pipeline)
+                  - message: pipeline field is mandatory if type == AppendPipeline
+                    rule: self.type != 'AppendPipeline' || has(self.pipeline)
                 type: array
                 x-kubernetes-list-map-keys:
                 - manager
