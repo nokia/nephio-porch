@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	kptfileapi "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
+	"github.com/nephio-project/porch/third_party/GoogleContainerTools/kpt-functions-sdk/go/fn"
 )
 
 const (

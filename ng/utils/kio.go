@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
+	"github.com/nephio-project/porch/third_party/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"

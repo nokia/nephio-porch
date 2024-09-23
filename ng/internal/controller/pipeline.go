@@ -20,10 +20,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 	kptfilev1 "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
+	"github.com/nephio-project/porch/third_party/GoogleContainerTools/kpt-functions-sdk/go/fn"
 )
 
 // addToPipeline is a mutator that adds KRM functions to the pipeline of the kpt package.

@@ -21,7 +21,6 @@ WORKDIR /go/src
 # and so that source changes don't invalidate our downloaded layer
 
 COPY go.mod go.sum ./
-COPY ./kpt-functions-sdk ./kpt-functions-sdk
 
 RUN echo "Downloading porch modules ..." \
  && go mod download
@@ -38,6 +37,7 @@ RUN go build -v \
   github.com/go-git/go-git/v5 \
   sigs.k8s.io/kustomize/kyaml/...
 
+COPY ./third_party ./third_party
 COPY ./api ./api
 COPY ./cmd ./cmd
 COPY ./pkg ./pkg

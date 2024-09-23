@@ -3,7 +3,7 @@ package utils
 import (
 	"fmt"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
+	"github.com/nephio-project/porch/third_party/GoogleContainerTools/kpt-functions-sdk/go/fn"
 )
 
 func SingleItem(kobjs fn.KubeObjects) (*fn.KubeObject, error) {

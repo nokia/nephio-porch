@@ -21,10 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
 	api "github.com/nephio-project/porch/ng/api/v1alpha1"
 	"github.com/nephio-project/porch/ng/utils"
+	"github.com/nephio-project/porch/third_party/GoogleContainerTools/kpt-functions-sdk/go/fn"
 )
 
 type injectInlineObject struct {
