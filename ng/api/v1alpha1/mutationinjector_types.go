@@ -17,19 +17,18 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"reflect"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // MutationInjectorSpec defines the desired state of MutationInjector
 type MutationInjectorSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// defines the set of target PackageVariants
+	PackageVariantSelector *metav1.LabelSelector `json:"packageVariantSelector,omitempty"`
 
-	// Foo is an example field of MutationInjector. Edit mutationinjector_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// mutations to apply to the target PackageVariants
+	Mutations []Mutation `json:"mutations,omitempty"`
 }
 
 // MutationInjectorStatus defines the observed state of MutationInjector
@@ -62,3 +61,7 @@ type MutationInjectorList struct {
 func init() {
 	SchemeBuilder.Register(&MutationInjector{}, &MutationInjectorList{})
 }
+
+var (
+	MutationInjectorGVK = GroupVersion.WithKind(reflect.TypeOf(MutationInjector{}).Name())
+)

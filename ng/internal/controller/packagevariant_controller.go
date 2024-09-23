@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	porchapi "github.com/nephio-project/porch/api/porch/v1alpha1"
@@ -143,11 +142,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	requeueNeeded, err := r.ensurePackageVariant(ctx, pv, upstream)
 	setReadyCondition(pv, err)
-	if requeueNeeded {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
-	} else {
-		return ctrl.Result{}, err
-	}
+	return ctrl.Result{Requeue: requeueNeeded}, err
 }
 
 func (r *PackageVariantReconciler) init(
@@ -198,7 +193,7 @@ func (r *PackageVariantReconciler) UpdateStatus(ctx context.Context, pv *api.Pac
 // NOTE: in theory all of this is taken care of by CRD field validations in the kube-apiserver
 // leave it here for now, in case we need to add more validation in the future
 func validatePackageVariant(pv *api.PackageVariant) error {
-	errors := utils.CombinedError{Joiner: "; "}
+	errors := utils.ErrorCollector{Joiner: "; "}
 	if pv.Spec.AdoptionPolicy == "" {
 		pv.Spec.AdoptionPolicy = api.AdoptionPolicyAdoptNone
 	}
@@ -214,7 +209,7 @@ func validatePackageVariant(pv *api.PackageVariant) error {
 	default:
 		errors.Addf("spec.deletionPolicy field can only be %q, %q, or %q", api.DeletionPolicyDelete, api.DeletionPolicyOrphan, api.DeletionPolicyProposeDeletion)
 	}
-	return errors.ErrorOrNil("")
+	return errors.Combined("")
 }
 
 func (r *PackageVariantReconciler) getUpstreamPR(ctx context.Context, upstream api.PackageRevisionRef) (*porchapi.PackageRevision, error) {
@@ -303,7 +298,7 @@ func (r *PackageVariantReconciler) ensurePackageVariant(
 
 	// aggregate status and errors
 	requeueNeeded = false
-	errors := &utils.CombinedError{Joiner: "\n  --- "}
+	errors := &utils.ErrorCollector{Joiner: "\n  --- "}
 	pv.Status.DownstreamTargets = make([]api.DownstreamTargetStatus, len(results))
 	for i, result := range results {
 		if result.err != nil {
@@ -314,7 +309,7 @@ func (r *PackageVariantReconciler) ensurePackageVariant(
 		}
 		pv.Status.DownstreamTargets[i] = result.status()
 	}
-	return requeueNeeded, errors.ErrorOrNil("failed to ensure some downstream package revisions:")
+	return requeueNeeded, errors.Combined("failed to ensure some downstream package revisions:")
 }
 
 func compare(pr, latestPublished *porchapi.PackageRevision, latestVersion string) (*porchapi.PackageRevision, string) {

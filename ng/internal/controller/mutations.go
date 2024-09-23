@@ -55,7 +55,7 @@ func ensureMutations(
 	// by semantic comparison (as opposed to comparing YAML representations)
 	removeAllKrmFunctionsInjectedByUs(prr, client.ObjectKeyFromObject(pv))
 
-	errors := utils.CombinedError{Joiner: "\n --- "}
+	errors := utils.ErrorCollector{Joiner: "\n --- "}
 	target.mutationStatus = make([]api.MutationStatus, len(pv.Spec.Mutations))
 	for i, mutation := range pv.Spec.Mutations {
 		target.mutationStatus[i].Name = mutation.Name
@@ -106,7 +106,7 @@ func ensureMutations(
 	}
 	setMutationConditions(ctx, pv, prr, target)
 	cleanUpOrphanedSubPackages(ctx, pv, prr)
-	return errors.ErrorOrNil("failed to apply mutations:")
+	return errors.Combined("failed to apply mutations:")
 }
 
 func pvPrefix(pvKey client.ObjectKey) string {

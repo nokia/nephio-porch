@@ -49,7 +49,7 @@ type PackageVariantSetSpec struct {
 }
 
 type Target struct {
-	// Exactly one of Repositories, RepositorySeletor, and ObjectSelector must be
+	// Exactly one of Repositories, RepositorySelector, and ObjectSelector must be
 	// populated
 	// option 1: an explicit repositories and package names
 	Repositories []RepositoryTarget `json:"repositories,omitempty"`
@@ -184,12 +184,12 @@ type MapExpr struct {
 // PipelineTemplate is used to calculate the pipeline field of the resulting
 // package variants.
 type PipelineTemplate struct {
-	// Validators is used to caculate the pipeline.validators field of the
+	// Validators is used to calculate the pipeline.validators field of the
 	// resulting package variants.
 	// +optional
 	Validators []FunctionTemplate `json:"validators,omitempty"`
 
-	// Mutators is used to caculate the pipeline.mutators field of the
+	// Mutators is used to calculate the pipeline.mutators field of the
 	// resulting package variants.
 	// +optional
 	Mutators []FunctionTemplate `json:"mutators,omitempty"`

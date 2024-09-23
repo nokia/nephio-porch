@@ -1,9 +1,11 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -62,54 +64,92 @@ func WithReconcileResult(err error, result ctrl.Result) error {
 	return nil
 }
 
-// CombinedError is an error that combines multiple errors into one.
-type CombinedError struct {
-	Errors []error
+// ErrorCollector is an error that combines multiple errors into one.
+type ErrorCollector struct {
+	errors []error
 	Joiner string
 }
 
-var _ error = &CombinedError{}
+var _ error = &ErrorCollector{}
+var _ utilerrors.Aggregate = &ErrorCollector{}
 
-func NewEmptyCombinedError(joiner string) *CombinedError {
-	return &CombinedError{Joiner: joiner}
+func NewErrorCollector(joiner string) *ErrorCollector {
+	if joiner == "" {
+		joiner = "; "
+	}
+	return &ErrorCollector{Joiner: joiner}
 }
 
-func (e *CombinedError) Error() string {
+func (e *ErrorCollector) Errors() []error {
+	return e.errors
+}
+
+func (e *ErrorCollector) Is(err error) bool {
+	for _, e := range e.errors {
+		if errors.Is(e, err) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *ErrorCollector) Error() string {
 	if e == nil {
 		return ""
 	}
 	var errorMessages []string
-	for _, err := range e.Errors {
+	for _, err := range e.errors {
 		errorMessages = append(errorMessages, err.Error())
 	}
 	return strings.Join(errorMessages, e.Joiner)
 }
 
-func (e *CombinedError) Add(err error) {
-	e.Errors = append(e.Errors, err)
+func (e *ErrorCollector) Add(err error) {
+	if err != nil {
+		e.errors = append(e.errors, err)
+	}
 }
 
-func (e *CombinedError) Addf(fmtString string, args ...any) {
-	e.Errors = append(e.Errors, fmt.Errorf(fmtString, args...))
+func (e *ErrorCollector) AddWithPrefix(err error, fmtString string, args ...any) {
+	if err != nil {
+		args = append(args, err)
+		e.errors = append(e.errors, fmt.Errorf(fmtString+": %w", args...))
+	}
 }
 
-func (e *CombinedError) IsEmpty() bool {
-	return e == nil || len(e.Errors) == 0
+func (e *ErrorCollector) Addf(fmtString string, args ...any) {
+	e.errors = append(e.errors, fmt.Errorf(fmtString, args...))
 }
 
-func (e *CombinedError) ErrorOrNil(prefix string) error {
+func (e *ErrorCollector) IsEmpty() bool {
+	return e == nil || len(e.errors) == 0
+}
+
+func (e *ErrorCollector) Combined(prefix string) error {
 	if e.IsEmpty() {
 		return nil
 	}
 	if prefix == "" {
-		return e
+		if len(e.errors) == 1 {
+			return e.errors[0]
+		} else {
+			return e
+		}
 	}
-	return fmt.Errorf("%s%s%w", prefix, e.Joiner, e)
+	if len(e.errors) == 1 {
+		return fmt.Errorf("%s %w", prefix, e.errors[0])
+	} else {
+		if strings.Contains(e.Joiner, "\n") {
+			return fmt.Errorf("%s %s%w", prefix, e.Joiner, e)
+		} else {
+			return fmt.Errorf("%s [%w]", prefix, e)
+		}
+	}
 }
 
 func CombineErrors(errors []error, joiner string) error {
 	if len(errors) == 0 {
 		return nil
 	}
-	return &CombinedError{Errors: errors, Joiner: joiner}
+	return &ErrorCollector{errors: errors, Joiner: joiner}
 }

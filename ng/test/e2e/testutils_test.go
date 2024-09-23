@@ -52,6 +52,27 @@ func (t *PvSuite) WaitUntilPackageVariantIsReady(ctx context.Context, pvKey type
 	return &foundPv
 }
 
+func (t *PvSuite) WaitUntilPackageVariantHasMutations(ctx context.Context, pvKey types.NamespacedName) *api.PackageVariant {
+
+	t.Helper()
+	t.Logf("Waiting for PackageVariant %q mutations", pvKey)
+	timeout := 120 * time.Second
+	var foundPv api.PackageVariant
+	err := wait.PollUntilContextTimeout(ctx, time.Second, timeout, true, func(ctx context.Context) (done bool, err error) {
+		err = t.Client.Get(ctx, pvKey, &foundPv)
+		if err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return false, err
+			}
+		}
+		return len(foundPv.Spec.Mutations) > 0, nil
+	})
+	if err != nil {
+		t.Fatalf("PackageVariant %q hasn't got mutations in time (%v)", pvKey, timeout)
+	}
+	return &foundPv
+}
+
 func (t *PvSuite) CheckInjectedSubPackages(
 	ctx context.Context,
 	pv *api.PackageVariant,

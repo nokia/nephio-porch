@@ -22,9 +22,6 @@ func TypeMetaOrDie(obj client.Object, scheme *runtime.Scheme) metav1.TypeMeta {
 }
 
 func CreateOwnerReference(obj client.Object, scheme *runtime.Scheme) metav1.OwnerReference {
-
-	// Create a new owner ref.
-
 	gvk := obj.GetObjectKind().GroupVersionKind()
 	if gvk.Empty() {
 		var err error
@@ -33,16 +30,7 @@ func CreateOwnerReference(obj client.Object, scheme *runtime.Scheme) metav1.Owne
 			panic(fmt.Errorf("unable to find GVK for object %v: %w", obj, err))
 		}
 	}
-
-	tr := true
-	return metav1.OwnerReference{
-		APIVersion:         gvk.GroupVersion().Identifier(),
-		Kind:               gvk.Kind,
-		Name:               obj.GetName(),
-		UID:                obj.GetUID(),
-		Controller:         &tr,
-		BlockOwnerDeletion: nil,
-	}
+	return *metav1.NewControllerRef(obj, gvk)
 }
 
 func CreateOwnerReferenceList(obj client.Object, scheme *runtime.Scheme) []metav1.OwnerReference {
@@ -65,4 +53,13 @@ func UpdateMap(m map[string]string, toAdd map[string]string) map[string]string {
 		m[key] = value
 	}
 	return m
+}
+
+func IsOwnedBy(owned client.Object, owner client.Object) bool {
+	for _, ref := range owned.GetOwnerReferences() {
+		if ref.UID == owner.GetUID() {
+			return true
+		}
+	}
+	return false
 }
