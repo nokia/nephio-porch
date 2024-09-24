@@ -40,12 +40,12 @@ var (
 			UID:       "pv-uid",
 		},
 		Spec: api.PackageVariantSpec{
-			Upstream: api.PackageRevisionRef{
+			Upstream: &api.PackageRevisionRef{
 				Repo:     "blueprints",
 				Package:  "foo",
 				Revision: "v1",
 			},
-			Downstream: api.PackageRef{
+			Downstream: &api.PackageRef{
 				Repo:    "deployments",
 				Package: "bar",
 			},

@@ -135,8 +135,9 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	upstream, err := r.getUpstreamPR(ctx, pv.Spec.Upstream)
 	if err != nil {
 		setValidCondition(pv, err)
+		l.Info(err.Error() + "... retrying later")
 		// requeue, as the upstream may appear
-		return ctrl.Result{}, err
+		return ctrl.Result{Requeue: true}, nil
 	}
 	setValidCondition(pv, nil)
 
@@ -212,7 +213,7 @@ func validatePackageVariant(pv *api.PackageVariant) error {
 	return errors.Combined("")
 }
 
-func (r *PackageVariantReconciler) getUpstreamPR(ctx context.Context, upstream api.PackageRevisionRef) (*porchapi.PackageRevision, error) {
+func (r *PackageVariantReconciler) getUpstreamPR(ctx context.Context, upstream *api.PackageRevisionRef) (*porchapi.PackageRevision, error) {
 	for _, pr := range utils.PackageRevisionsFromContextOrDie(ctx) {
 		if pr.Spec.RepositoryName == upstream.Repo &&
 			pr.Spec.PackageName == upstream.Package &&
@@ -220,8 +221,7 @@ func (r *PackageVariantReconciler) getUpstreamPR(ctx context.Context, upstream a
 			return &pr, nil
 		}
 	}
-	return nil, fmt.Errorf("could not find upstream package revision '%s/%s' in repo '%s'",
-		upstream.Package, upstream.Revision, upstream.Repo)
+	return nil, fmt.Errorf("upstream package revision '%s/%s/%s' is missing", upstream.Repo, upstream.Package, upstream.Revision)
 }
 
 func setValidCondition(pv *api.PackageVariant, err error) {

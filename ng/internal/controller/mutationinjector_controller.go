@@ -45,6 +45,10 @@ type MutationInjectorReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MutationInjectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := api.AddToScheme(mgr.GetScheme()); err != nil {
+		return err
+	}
+	r.log = mgr.GetLogger()
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&api.MutationInjector{}).
 		Watches(&api.PackageVariant{}, handler.EnqueueRequestsFromMapFunc(
@@ -151,6 +155,11 @@ func (r *MutationInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, errlist.Combined("failed to orphan PackageVariants:")
 	}
 
+	if len(targets) == 0 {
+		l.Info("No matching targets found")
+		return ctrl.Result{}, nil
+	}
+
 	// rewrite mutation manager fields to point to the reconciled MutationInjector
 	for i := range injector.Spec.Mutations {
 		injector.Spec.Mutations[i].Manager = fmt.Sprintf("%s/%s", api.MutationInjectorGVK.GroupKind(), req)
@@ -219,7 +228,7 @@ func (r *MutationInjectorReconciler) getOwnedAndTargetPackageVariants(
 			owned = append(owned, &pv)
 		}
 		// filter PackageVariants that match the selector
-		if selector.Matches(labels.Set(pv.Spec.Labels)) {
+		if selector.Matches(labels.Set(pv.Labels)) {
 			targets = append(targets, &pv)
 		}
 	}
@@ -232,36 +241,35 @@ func (r *MutationInjectorReconciler) applyMutations(
 	target *api.PackageVariant,
 	injector *api.MutationInjector,
 ) error {
-	var patch *api.PackageVariant
+	l := log.FromContext(ctx)
+	patch := &api.PackageVariant{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: api.GroupVersion.String(),
+			Kind:       api.PackageVariantGVK.Kind,
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      target.Name,
+			Namespace: target.Namespace,
+		},
+	}
 	if injector == nil {
 		// remove previously added mutations and ownerReference by an empty patch
-		patch = &api.PackageVariant{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      target.Name,
-				Namespace: target.Namespace,
-			},
-		}
+		l.Info(fmt.Sprintf("orphaning PackageVariant %q", target.Name))
 	} else {
 		// add mutations and ownerReference
-		patch = &api.PackageVariant{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      target.Name,
-				Namespace: target.Namespace,
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion:         api.GroupVersion.String(),
-						Kind:               api.MutationInjectorGVK.Kind,
-						Name:               injector.Name,
-						UID:                injector.UID,
-						Controller:         ptr.To(false),
-						BlockOwnerDeletion: ptr.To(false),
-					},
-				},
-			},
-			Spec: api.PackageVariantSpec{
-				Mutations: injector.Spec.Mutations,
+		l.Info(fmt.Sprintf("ensuring %d mutation(s) to be injected into PackageVariant %q", len(injector.Spec.Mutations), target.Name))
+		patch.OwnerReferences = []metav1.OwnerReference{
+			{
+				APIVersion:         api.GroupVersion.String(),
+				Kind:               api.MutationInjectorGVK.Kind,
+				Name:               injector.Name,
+				UID:                injector.UID,
+				Controller:         ptr.To(false),
+				BlockOwnerDeletion: ptr.To(false),
 			},
 		}
+		patch.Spec.Mutations = injector.Spec.Mutations
+
 	}
 	// NOTE: not forcing the apply to detect conflicts
 	return r.Patch(ctx, patch, client.Apply, client.FieldOwner("mutation-injector"))

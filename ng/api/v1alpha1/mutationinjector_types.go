@@ -25,6 +25,7 @@ import (
 // MutationInjectorSpec defines the desired state of MutationInjector
 type MutationInjectorSpec struct {
 	// defines the set of target PackageVariants
+	// +required
 	PackageVariantSelector *metav1.LabelSelector `json:"packageVariantSelector,omitempty"`
 
 	// mutations to apply to the target PackageVariants

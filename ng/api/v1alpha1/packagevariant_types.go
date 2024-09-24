@@ -71,10 +71,13 @@ const (
 
 // PackageVariantSpec defines the desired state of PackageVariant
 type PackageVariantSpec struct {
+	// NOTE: using a pointer for struct fields, even if they are required (i.e. upstream/downstream)
+	//       helps creating partial objects (patches) for server-side apply
+
 	//+required
-	Upstream PackageRevisionRef `json:"upstream,omitempty"`
+	Upstream *PackageRevisionRef `json:"upstream,omitempty"`
 	//+required
-	Downstream PackageRef `json:"downstream,omitempty"`
+	Downstream *PackageRef `json:"downstream,omitempty"`
 
 	//+default="adoptNone"
 	//+kubebuilder:validation:Enum=adoptExisting;adoptNone

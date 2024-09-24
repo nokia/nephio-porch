@@ -48,12 +48,12 @@ func (t *PvSuite) TestMutationInjector(ctx context.Context) {
 			},
 		},
 		Spec: api.PackageVariantSpec{
-			Upstream: api.PackageRevisionRef{
+			Upstream: &api.PackageRevisionRef{
 				Repo:     upstreamRepository,
 				Package:  "basens",
 				Revision: "v3",
 			},
-			Downstream: api.PackageRef{
+			Downstream: &api.PackageRef{
 				Repo:    downstreamRepository,
 				Package: downstreamPackage,
 			},

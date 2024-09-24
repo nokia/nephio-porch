@@ -1,3 +1,4 @@
-# 3rd party packages
+# Local forks of 3rd party dependencies
 
-This directory contains 3rd party go libraries that we had to fork because we needed to contribute to them, but they seem to be abandoned.
+This directory contains a local fork of 3rd party go libraries that porch depends on.
+These had to be forked because we needed to modify them, but they seem to be abandoned, so contribution via normal channels wasn't possible.
