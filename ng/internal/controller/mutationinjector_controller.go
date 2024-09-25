@@ -197,6 +197,9 @@ func (r *MutationInjectorReconciler) init(
 	l := r.log.WithValues(api.MutationInjectorGVK.Kind, req.String())
 	ctx = log.IntoContext(ctx, l)
 
+	// put the key of the object being reconciled into context
+	ctx = utils.WithReconciledObjectKey(ctx, req.NamespacedName)
+
 	return ctx, &injector, nil
 }
 
@@ -265,12 +268,16 @@ func (r *MutationInjectorReconciler) applyMutations(
 				Name:               injector.Name,
 				UID:                injector.UID,
 				Controller:         ptr.To(false),
-				BlockOwnerDeletion: ptr.To(false),
+				BlockOwnerDeletion: ptr.To(true),
 			},
 		}
 		patch.Spec.Mutations = injector.Spec.Mutations
 
 	}
 	// NOTE: not forcing the apply to detect conflicts
-	return r.Patch(ctx, patch, client.Apply, client.FieldOwner("mutation-injector"))
+	return r.Patch(ctx, patch, client.Apply, client.FieldOwner(fieldManager(ctx)))
+}
+
+func fieldManager(ctx context.Context) string {
+	return fmt.Sprintf("%s/%s", api.MutationInjectorGVK.GroupKind(), utils.ReconciledObjectKeyFromContextOrDie(ctx))
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,4 +63,22 @@ func IsOwnedBy(owned client.Object, owner client.Object) bool {
 		}
 	}
 	return false
+}
+
+type reconciledObjectKey_ContextKey_type struct{}
+
+var reconciledObjectKey_ContextKey reconciledObjectKey_ContextKey_type
+
+// PackageRevisionsFromContextOrDie extracts the PackageRevisions object from the context
+func ReconciledObjectKeyFromContextOrDie(ctx context.Context) client.ObjectKey {
+	prs, ok := ctx.Value(reconciledObjectKey_ContextKey).(client.ObjectKey)
+	if !ok {
+		panic("Logical error: the key of the reconciled object is missing from the context")
+	}
+	return prs
+}
+
+// WithPackageRevisions returns a new context with the given PackageRevisions object
+func WithReconciledObjectKey(ctx context.Context, key client.ObjectKey) context.Context {
+	return context.WithValue(ctx, reconciledObjectKey_ContextKey, key)
 }
