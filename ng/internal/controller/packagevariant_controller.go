@@ -52,14 +52,12 @@ type PackageVariantReconciler struct {
 	log logr.Logger
 }
 
-//go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.16.1 rbac:headerFile=../../../../../scripts/boilerplate.yaml.txt,roleName=porch-controllers-packagevariants webhook paths="." output:rbac:artifacts:config=../../../config/rbac
-
-//+kubebuilder:rbac:groups=config.porch.kpt.dev,resources=packagevariants,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=config.porch.kpt.dev,resources=packagevariants/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=config.porch.kpt.dev,resources=packagevariants/finalizers,verbs=update
-//+kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisions,verbs=create;delete;get;list;patch;update;watch
-//+kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisionresources,verbs=create;delete;get;list;patch;update;watch
-//+kubebuilder:rbac:groups=config.porch.kpt.dev,resources=repositories,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ng.porch.kpt.dev,resources=packagevariants,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ng.porch.kpt.dev,resources=packagevariants/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=ng.porch.kpt.dev,resources=packagevariants/finalizers,verbs=update
+// +kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisions,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisionresources,verbs=create;delete;get;list;patch;update
+// +kubebuilder:rbac:groups=config.porch.kpt.dev,resources=repositories,verbs=get;list;watch
 
 // Reconcile implements the main kubernetes reconciliation loop.
 func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {

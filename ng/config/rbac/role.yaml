@@ -7,32 +7,6 @@ rules:
 - apiGroups:
   - config.porch.kpt.dev
   resources:
-  - packagevariants
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - config.porch.kpt.dev
-  resources:
-  - packagevariants/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - config.porch.kpt.dev
-  resources:
-  - packagevariants/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - config.porch.kpt.dev
-  resources:
   - repositories
   verbs:
   - get
@@ -42,6 +16,7 @@ rules:
   - ng.porch.kpt.dev
   resources:
   - mutationinjectors
+  - packagevariants
   verbs:
   - create
   - delete
@@ -54,12 +29,14 @@ rules:
   - ng.porch.kpt.dev
   resources:
   - mutationinjectors/finalizers
+  - packagevariants/finalizers
   verbs:
   - update
 - apiGroups:
   - ng.porch.kpt.dev
   resources:
   - mutationinjectors/status
+  - packagevariants/status
   verbs:
   - get
   - patch
@@ -68,6 +45,16 @@ rules:
   - porch.kpt.dev
   resources:
   - packagerevisionresources
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+- apiGroups:
+  - porch.kpt.dev
+  resources:
   - packagerevisions
   verbs:
   - create

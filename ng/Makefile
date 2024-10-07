@@ -146,12 +146,14 @@ build-kpt-package: manifests generate kustomize ## Generate a kpt package contai
 ##@ Deployment
 
 .PHONY: run-in-kind
-run-in-kind: docker-build build-kpt-package ## Generate a kpt package containing all YAMLs necessary to deploy CRDs and the manager.
+run-in-kind: install docker-build build-kpt-package ## Generate a kpt package containing all YAMLs necessary to deploy CRDs and the manager.
 	kind load docker-image $(IMG) -n ${KIND_CONTEXT_NAME}
+	kubectl delete deployment -n porch-system --ignore-not-found=true porch-ng-controller
 	kpt fn render $(KPT_PKG_DIR)
 	kpt live init $(KPT_PKG_DIR) --name porch-ng --namespace porch-system --inventory-id porch-ng || true
 	kpt live apply --inventory-policy=adopt --server-side --force-conflicts $(KPT_PKG_DIR)
 
+.PHONY: destroy-in-kind
 destroy-in-kind:
 	kpt live destroy $(KPT_PKG_DIR) --inventory-policy=adopt q--show-status-events
 
