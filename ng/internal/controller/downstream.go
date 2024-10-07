@@ -166,7 +166,7 @@ func (r *PackageVariantReconciler) getDownstreamPRs(
 	if err := r.Client.Create(ctx, newPR); err != nil {
 		return nil, err
 	}
-	l.Info(fmt.Sprintf("Created new package revision %q", newPR.Name))
+	l.Info(fmt.Sprintf("-> Created new downstream package revision: %q", newPR.Name))
 
 	return []*porchapi.PackageRevision{newPR}, nil
 }
@@ -214,7 +214,7 @@ func (r *PackageVariantReconciler) ensureDownstreamTarget(
 		if target.err != nil {
 			return
 		}
-		l.Info(fmt.Sprintf("Updated package revision %q to upstream revision %s", target.pr.Name, upstreamPR.Spec.Revision))
+		l.Info(fmt.Sprintf("-> Updated package revision %q to upstream revision %s", target.pr.Name, upstreamPR.Spec.Revision))
 	}
 
 	// finally, see if any other changes are needed to the resources
@@ -332,14 +332,14 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 	// check if any resources have changed after applying mutations
 	if len(prr.Spec.Resources) != len(origResources) {
 		// files were added or deleted
-		l.Info(fmt.Sprintf("Updating PackageRevision %q: number of files: %d original files, %d new files", prr.Name, len(origResources), len(prr.Spec.Resources)))
+		l.Info(fmt.Sprintf("-> Updating package revision %q: number of files: %d original files, %d new files", prr.Name, len(origResources), len(prr.Spec.Resources)))
 		return prr, true, nil
 	}
 
 	for file, oldContent := range origResources {
 		newContent, ok := prr.Spec.Resources[file]
 		if !ok {
-			l.Info(fmt.Sprintf("Updating PackageRevision %q: file %q was deleted", prr.Name, file))
+			l.Info(fmt.Sprintf("-> Updating package revision %q: file %q was deleted", prr.Name, file))
 			return prr, true, nil
 		}
 
@@ -350,18 +350,18 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 			// we will parse and compare semantically.
 			//
 			if file == "Kptfile" && kptfilesEqual(oldContent, newContent) {
-				l.Info(fmt.Sprintf("warning for PackageRevision %q: Kptfiles differ, but not semantically", prr.Name))
+				l.Info(fmt.Sprintf("! warning for package revision %q: Kptfiles differ, but not semantically", prr.Name))
 				continue
 			}
 
 			// a file was changed
-			l.Info(fmt.Sprintf("Updating PackageRevision %q: contents of (at least) file %q changed", prr.Name, file))
+			l.Info(fmt.Sprintf("-> Updating package revision %q: contents of (at least) file %q changed", prr.Name, file))
 			return prr, true, nil
 		}
 	}
 
 	// all files in orig are in new, no new files, and all contents match, so no change
-	l.Info(fmt.Sprintf("no update is needed for PackageRevision %q", prr.Name))
+	l.Info(fmt.Sprintf("✔ no update is needed for PackageRevision %q", prr.Name))
 	return prr, false, nil
 }
 
@@ -391,7 +391,7 @@ func (r *PackageVariantReconciler) deletePackageRevision(ctx context.Context, pr
 
 	switch pr.Spec.Lifecycle {
 	case porchapi.PackageRevisionLifecyclePublished:
-		l.Info(fmt.Sprintf("Proposing published package revision %q for deletion", pr.Name))
+		l.Info(fmt.Sprintf("-> Proposing published package revision %q for deletion", pr.Name))
 		pr.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDeletionProposed
 		if err := r.Client.Update(ctx, pr); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("couldn't propose package revision %q for deletion: %w", pr.Name, err)
@@ -404,7 +404,7 @@ func (r *PackageVariantReconciler) deletePackageRevision(ctx context.Context, pr
 		}
 		fallthrough
 	case "", porchapi.PackageRevisionLifecycleDraft, porchapi.PackageRevisionLifecycleProposed:
-		l.Info(fmt.Sprintf("Deleting package revision %q", pr.Name))
+		l.Info(fmt.Sprintf("-> Deleting package revision %q", pr.Name))
 		err := r.Client.Delete(ctx, pr)
 		if client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("couldn't delete package revision %q: %w", pr.Name, err)
@@ -425,7 +425,7 @@ func (r *PackageVariantReconciler) copyPublished(
 	error,
 ) {
 	l := log.FromContext(ctx)
-	l.Info(fmt.Sprintf("Creating new draft, because published package revision %q must be updated", source.Name))
+	l.Info(fmt.Sprintf("-> Creating new draft, because published package revision %q must be updated", source.Name))
 	newPR := &porchapi.PackageRevision{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "PackageRevision",
@@ -473,7 +473,7 @@ func (r *PackageVariantReconciler) copyPublished(
 		l.Error(err, fmt.Sprintf("failed to copy %q", source.Name))
 		return source, err
 	}
-	l.Info(fmt.Sprintf("Created package revision %q based on %q", newPR.Name, source.Name))
+	l.Info(fmt.Sprintf("-> Created package revision %q based on %q", newPR.Name, source.Name))
 	return newPR, nil
 }
 
@@ -489,7 +489,7 @@ func (r *PackageVariantReconciler) deleteOrOrphan(
 	case "", api.DeletionPolicyDelete:
 		return r.deletePackageRevision(ctx, pr, false)
 	case api.DeletionPolicyOrphan:
-		l.Info(fmt.Sprintf("Orphaning package revision %q", pr.Name))
+		l.Info(fmt.Sprintf("-> Orphaning package revision %q", pr.Name))
 		return r.orphanPackageRevision(ctx, pr, pv)
 	default:
 		// this should never happen, because the pv should already be validated beforehand

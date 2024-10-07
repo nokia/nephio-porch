@@ -156,7 +156,7 @@ func (r *MutationInjectorReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	if len(targets) == 0 {
-		l.Info("no matching targets found")
+		l.Info("! no matching targets found")
 		return ctrl.Result{}, nil
 	}
 
@@ -257,10 +257,10 @@ func (r *MutationInjectorReconciler) applyMutations(
 	}
 	if injector == nil {
 		// remove previously added mutations and ownerReference by an empty patch
-		l.Info(fmt.Sprintf("Orphaning PackageVariant %q", target.Name))
+		l.Info(fmt.Sprintf("-> Orphaning PackageVariant %q", target.Name))
 	} else {
 		// add mutations and ownerReference
-		l.Info(fmt.Sprintf("Ensuring %d mutation(s) to be injected into PackageVariant %q", len(injector.Spec.Mutations), target.Name))
+		l.Info(fmt.Sprintf("-> Ensuring %d mutation(s) to be injected into PackageVariant %q", len(injector.Spec.Mutations), target.Name))
 		patch.OwnerReferences = []metav1.OwnerReference{
 			{
 				APIVersion:         api.GroupVersion.String(),
