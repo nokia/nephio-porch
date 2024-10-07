@@ -112,7 +112,7 @@ func UpdatePRResources(ctx context.Context, client client.Client,
 		if err := client.Update(ctx, prr); err != nil {
 			return errors.Wrapf(err, "while updating resources of package revision %s/%s", prr.Namespace, prr.Name)
 		}
-		l.Info(fmt.Sprintf("updated resources of package revision %s/%s", prr.Namespace, prr.Name))
+		l.Info(fmt.Sprintf("Updated resources of package revision %s/%s", prr.Namespace, prr.Name))
 	} else {
 		l.Info(fmt.Sprintf("no change in resources of package revision %s/%s", prr.Namespace, prr.Name))
 	}

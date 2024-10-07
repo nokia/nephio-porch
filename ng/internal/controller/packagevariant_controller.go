@@ -71,7 +71,7 @@ func (r *PackageVariantReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 	l := log.FromContext(ctx)
-	l.Info("reconciliation called")
+	l.Info("reconciling...")
 
 	defer func() {
 		statusErr := r.UpdateStatus(ctx, pv)

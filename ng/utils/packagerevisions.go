@@ -147,6 +147,6 @@ func NewDraftPR(
 	if err := client.Create(ctx, newPR); err != nil {
 		return nil, err
 	}
-	l.Info(fmt.Sprintf("a new draft package revision (%v) was added to package %q", newPR.Name, pkg))
+	l.Info(fmt.Sprintf("Created new draft package revision (%v) for package %q", newPR.Name, pkg))
 	return newPR, nil
 }
