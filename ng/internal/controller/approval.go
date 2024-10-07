@@ -52,7 +52,7 @@ func (r *PackageVariantReconciler) ensureApproval(ctx context.Context, pv *api.P
 		switch newPR.Spec.Lifecycle {
 
 		case porchapi.PackageRevisionLifecycleDraft:
-			l.Info(fmt.Sprintf("Proposing package revision %q", target.pr.Name))
+			l.Info(fmt.Sprintf("-> Proposing package revision %q", target.pr.Name))
 			newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
 			err = r.Client.Update(ctx, &newPR)
 			if err != nil {
@@ -61,12 +61,12 @@ func (r *PackageVariantReconciler) ensureApproval(ctx context.Context, pv *api.P
 			fallthrough
 
 		case porchapi.PackageRevisionLifecycleProposed:
-			l.Info(fmt.Sprintf("Approving package revision %q", target.pr.Name))
+			l.Info(fmt.Sprintf("-> Approving package revision %q", target.pr.Name))
 			newPR.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
 			return r.Client.SubResource("approval").Update(ctx, &newPR)
 
 		case porchapi.PackageRevisionLifecyclePublished, porchapi.PackageRevisionLifecycleDeletionProposed:
-			l.Info(fmt.Sprintf("package revision %q already approved", target.pr.Name))
+			l.Info(fmt.Sprintf("✔ package revision %q already approved", target.pr.Name))
 			return nil
 
 		default:

@@ -98,7 +98,7 @@ func (m *injectSubPackage) Apply(ctx context.Context, prr *porchapi.PackageRevis
 	subdirsToDelete := make([]string, 0)
 	for _, kptfile := range kptfilesInjectedByUs {
 		if !strings.Contains(kptfile.PathAnnotation(), "/") {
-			l.Info("WARNING: KptFile resource injected by packagevariant has no / in its path annotation")
+			l.Info("! warning: KptFile resource injected by PackageVariant has no / in its path annotation")
 			continue
 		}
 		if injectedBySameMutation(kptfile, &cfg, &repo) {

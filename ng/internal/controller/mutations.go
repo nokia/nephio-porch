@@ -194,7 +194,7 @@ func cleanUpOrphanedSubPackages(ctx context.Context, pv *api.PackageVariant, prr
 		mutationId := kptfile.GetAnnotation(InjectedByMutationAnnotation)
 		if !existingMutationIds.Has(mutationId) {
 			if !strings.Contains(kptfile.PathAnnotation(), "/") {
-				l.Info("WARNING: KptFile resource injected by packagevariant has no / in its path annotation")
+				l.Info("! warning: KptFile resource injected by packagevariant has no / in its path annotation")
 				continue
 			}
 			subdirsToDelete = append(subdirsToDelete, filepath.Dir(kptfile.PathAnnotation()))
