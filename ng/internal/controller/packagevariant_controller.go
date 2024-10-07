@@ -56,6 +56,7 @@ type PackageVariantReconciler struct {
 // +kubebuilder:rbac:groups=ng.porch.kpt.dev,resources=packagevariants/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ng.porch.kpt.dev,resources=packagevariants/finalizers,verbs=update
 // +kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisions,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisions/approval,verbs=get;patch;update
 // +kubebuilder:rbac:groups=porch.kpt.dev,resources=packagerevisionresources,verbs=create;delete;get;list;patch;update
 // +kubebuilder:rbac:groups=config.porch.kpt.dev,resources=repositories,verbs=get;list;watch
 
