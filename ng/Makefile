@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= ng-porch-controller:latest
+IMG ?= nephio.org/ng-porch-controller:test
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.30.3
 
@@ -91,7 +91,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build -f Dockerfile -t ${IMG} ..
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -120,7 +120,40 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
+KPT_PKG_DIR ?= dist/kpt
+KIND_CONTEXT_NAME ?= porch-test
+
+.PHONY: build-kpt-package
+build-kpt-package: manifests generate kustomize ## Generate a kpt package containing all YAMLs necessary to deploy CRDs and the manager.
+	rm -rf $(KPT_PKG_DIR)
+	mkdir -p $(KPT_PKG_DIR)
+	cd $(KPT_PKG_DIR) && kpt pkg init .
+	cp -r config/crd/bases $(KPT_PKG_DIR)/crd
+	cp config/default/metrics_service.yaml $(KPT_PKG_DIR)/metrics-service.yaml
+	cp config/manager/manager.yaml $(KPT_PKG_DIR)/manager.yaml
+	cp -r config/rbac $(KPT_PKG_DIR) && rm $(KPT_PKG_DIR)/rbac/kustomization.yaml
+	export NEW=${IMG} && kpt fn eval $(KPT_PKG_DIR) --image set-image:v0.1.1 -- "name=controller:latest" "newName=$${NEW%:*}" "newTag=$${NEW##*:}"
+	kpt fn eval $(KPT_PKG_DIR) --image set-namespace:v0.4.1 -- "namespace=porch-system"
+# this is a workaround that tries to fix a bug in set-namespace
+# TODO: write an improved set-namespace KRM function
+	kpt fn eval $(KPT_PKG_DIR) \
+    --image gcr.io/kpt-fn/starlark:v0.5.0 \
+    --match-kind CustomResourceDefinition \
+    -- 'source=\
+		for resource in ctx.resource_list["items"]:\
+			resource["spec"].pop("conversion", None)'
+
 ##@ Deployment
+
+.PHONY: run-in-kind
+run-in-kind: docker-build build-kpt-package ## Generate a kpt package containing all YAMLs necessary to deploy CRDs and the manager.
+	kind load docker-image $(IMG) -n ${KIND_CONTEXT_NAME}
+	kpt fn render $(KPT_PKG_DIR)
+	kpt live init $(KPT_PKG_DIR) --name porch-ng --namespace porch-system --inventory-id porch-ng || true
+	kpt live apply --inventory-policy=adopt --server-side --force-conflicts $(KPT_PKG_DIR)
+
+destroy-in-kind:
+	kpt live destroy $(KPT_PKG_DIR) --inventory-policy=adopt q--show-status-events
 
 ifndef ignore-not-found
   ignore-not-found = false
