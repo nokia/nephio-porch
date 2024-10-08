@@ -31,7 +31,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/kio/kioutil"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
@@ -39,9 +38,9 @@ import (
 	kptpkg "github.com/nephio-project/porch/internal/kpt/pkg"
 )
 
-// ParseKubeObjectsFromPrByName reads KubeObjects from a PackageRevision that is identified by the given repo, pkg, and revision.
+// ParseKubeObjectsFromPr reads KubeObjects from a PackageRevision that is identified by the given repo, pkg, and revision.
 // The list of PackageRevisions must be in the context.
-func ParseKubeObjectsFromPrByName(
+func ParseKubeObjectsFromPr(
 	ctx context.Context,
 	client client.Client,
 	repo, pkg, revision string,
@@ -58,12 +57,12 @@ func ParseKubeObjectsFromPrByName(
 			ctrl.Result{RequeueAfter: 1 * time.Minute},
 		)
 	}
-	_, kubeObjects, err := ParseKubeObjectsFromPR(ctx, client, pr)
+	_, kubeObjects, err := ParseKubeObjectsFromPrObject(ctx, client, pr)
 	return kubeObjects, err
 }
 
-// ParseKubeObjectsFromPR reads to contents of the given package as KubeObjects
-func ParseKubeObjectsFromPR(ctx context.Context, cl client.Client, pr *porchapi.PackageRevision) (
+// ParseKubeObjectsFromPrObject reads to contents of the given package revision as KubeObjects
+func ParseKubeObjectsFromPrObject(ctx context.Context, cl client.Client, pr *porchapi.PackageRevision) (
 	prr *porchapi.PackageRevisionResources,
 	objs fn.KubeObjects,
 	err error,
@@ -89,34 +88,6 @@ func ParseKubeObjectsFromPR(ctx context.Context, cl client.Client, pr *porchapi.
 	// parse all files in the package into one flat KubeObjects list
 	objs, _, err = ReadKubeObjects(prr.Spec.Resources)
 	return prr, objs, errors.Wrapf(err, "failed to parse %s", prrId)
-}
-
-// UpdatePRResources updates the contents of package revision with the given KubeObjects
-func UpdatePRResources(ctx context.Context, client client.Client,
-	prr *porchapi.PackageRevisionResources, objs fn.KubeObjects) error {
-
-	l := log.FromContext(ctx)
-	newContent, err := WriteKubeObjects(objs)
-	if err != nil {
-		return err
-	}
-
-	updateNeeded := false
-	for path, content := range newContent {
-		if prr.Spec.Resources[path] != content {
-			prr.Spec.Resources[path] = content
-			updateNeeded = true
-		}
-	}
-	if updateNeeded {
-		if err := client.Update(ctx, prr); err != nil {
-			return errors.Wrapf(err, "while updating resources of package revision %s/%s", prr.Namespace, prr.Name)
-		}
-		l.Info(fmt.Sprintf("-> Updated resources of package revision %s/%s", prr.Namespace, prr.Name))
-	} else {
-		l.Info(fmt.Sprintf("✔ no change in resources of package revision %s/%s", prr.Namespace, prr.Name))
-	}
-	return nil
 }
 
 func ReadKubeObjects(inputFiles map[string]string) (objs fn.KubeObjects, extraFiles map[string]string, err error) {
