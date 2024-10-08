@@ -361,7 +361,7 @@ func (r *PackageVariantReconciler) calculateDraftResources(
 	}
 
 	// all files in orig are in new, no new files, and all contents match, so no change
-	l.Info(fmt.Sprintf("✔ no update is needed for PackageRevision %q", prr.Name))
+	l.Info(fmt.Sprintf("✓ no update is needed for PackageRevision %q", prr.Name))
 	return prr, false, nil
 }
 
@@ -473,7 +473,7 @@ func (r *PackageVariantReconciler) copyPublished(
 		l.Error(err, fmt.Sprintf("failed to copy %q", source.Name))
 		return source, err
 	}
-	l.Info(fmt.Sprintf("-> Created package revision %q based on %q", newPR.Name, source.Name))
+	// l.Info(fmt.Sprintf("Created package revision %q based on %q", newPR.Name, source.Name))
 	return newPR, nil
 }
 

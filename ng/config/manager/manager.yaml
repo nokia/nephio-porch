@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: porch-ng-controller
+  name: ng-porch-controller
   namespace: system
   labels:
     control-plane: controller-manager

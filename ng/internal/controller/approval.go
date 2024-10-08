@@ -66,7 +66,7 @@ func (r *PackageVariantReconciler) ensureApproval(ctx context.Context, pv *api.P
 			return r.Client.SubResource("approval").Update(ctx, &newPR)
 
 		case porchapi.PackageRevisionLifecyclePublished, porchapi.PackageRevisionLifecycleDeletionProposed:
-			l.Info(fmt.Sprintf("✔ package revision %q already approved", target.pr.Name))
+			l.Info(fmt.Sprintf("✓ package revision %q already approved", target.pr.Name))
 			return nil
 
 		default:
