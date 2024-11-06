@@ -119,6 +119,10 @@ spec:
                           required:
                           - name
                           type: object
+                        group:
+                          type: string
+                        kind:
+                          type: string
                         package:
                           type: string
                         repo:
@@ -136,6 +140,8 @@ spec:
                           required:
                           - name
                           type: object
+                        version:
+                          type: string
                       required:
                       - destination
                       - package
