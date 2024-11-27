@@ -1,4 +1,4 @@
-// Copyright 2022 The kpt and Nephio Authors
+// Copyright 2022, 2024 The kpt and Nephio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,12 +17,14 @@ package porch
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	unversionedapi "github.com/nephio-project/porch/api/porch"
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	"github.com/nephio-project/porch/pkg/engine"
 	"github.com/nephio-project/porch/pkg/repository"
+	"github.com/nephio-project/porch/pkg/util"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,6 +35,13 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const ConflictErrorMsgBase = "another request is already in progress %s"
+
+var GenericConflictErrorMsg = fmt.Sprintf(ConflictErrorMsgBase, "on %s \"%s\"")
+
+var mutexMapMutex sync.Mutex
+var pkgRevOperationMutexes = map[string]*sync.Mutex{}
 
 type packageCommon struct {
 	// scheme holds our scheme, for type conversions etc
@@ -47,7 +56,7 @@ type packageCommon struct {
 }
 
 func (r *packageCommon) listPackageRevisions(ctx context.Context, filter packageRevisionFilter,
-	selector labels.Selector, callback func(p *engine.PackageRevision) error) error {
+	selector labels.Selector, callback func(p repository.PackageRevision) error) error {
 	var opts []client.ListOption
 	ns, namespaced := genericapirequest.NamespaceFrom(ctx)
 	if namespaced && ns != "" {
@@ -94,7 +103,7 @@ func (r *packageCommon) listPackageRevisions(ctx context.Context, filter package
 	return nil
 }
 
-func (r *packageCommon) listPackages(ctx context.Context, filter packageFilter, callback func(p *engine.Package) error) error {
+func (r *packageCommon) listPackages(ctx context.Context, filter packageFilter, callback func(p repository.Package) error) error {
 	var opts []client.ListOption
 	if ns, namespaced := genericapirequest.NamespaceFrom(ctx); namespaced {
 		opts = append(opts, client.InNamespace(ns))
@@ -144,7 +153,7 @@ func (r *packageCommon) getRepositoryObjFromName(ctx context.Context, name strin
 	if !namespaced {
 		return nil, fmt.Errorf("namespace must be specified")
 	}
-	repositoryName, err := ParseRepositoryName(name)
+	repositoryName, err := util.ParseRepositoryName(name)
 	if err != nil {
 		return nil, apierrors.NewNotFound(r.gr, name)
 	}
@@ -163,7 +172,7 @@ func (r *packageCommon) getRepositoryObj(ctx context.Context, repositoryID types
 	return &repositoryObj, nil
 }
 
-func (r *packageCommon) getRepoPkgRev(ctx context.Context, name string) (*engine.PackageRevision, error) {
+func (r *packageCommon) getRepoPkgRev(ctx context.Context, name string) (repository.PackageRevision, error) {
 	repositoryObj, err := r.getRepositoryObjFromName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -181,7 +190,7 @@ func (r *packageCommon) getRepoPkgRev(ctx context.Context, name string) (*engine
 	return nil, apierrors.NewNotFound(r.gr, name)
 }
 
-func (r *packageCommon) getPackage(ctx context.Context, name string) (*engine.Package, error) {
+func (r *packageCommon) getPackage(ctx context.Context, name string) (repository.Package, error) {
 	repositoryObj, err := r.getRepositoryObjFromName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -210,9 +219,21 @@ func (r *packageCommon) updatePackageRevision(ctx context.Context, name string, 
 		return nil, false, apierrors.NewBadRequest("namespace must be specified")
 	}
 
+	pkgMutexKey := getPackageMutexKey(ns, name)
+	pkgMutex := getMutexForPackage(pkgMutexKey)
+
+	locked := pkgMutex.TryLock()
+	if !locked {
+		return nil, false,
+			apierrors.NewConflict(
+				api.Resource("packagerevisions"),
+				name,
+				fmt.Errorf(GenericConflictErrorMsg, "package revision", pkgMutexKey))
+	}
+	defer pkgMutex.Unlock()
+
 	// isCreate tracks whether this is an update that creates an object (this happens in server-side apply)
 	isCreate := false
-
 	oldRepoPkgRev, err := r.getRepoPkgRev(ctx, name)
 	if err != nil {
 		if forceAllowCreate && apierrors.IsNotFound(err) {
@@ -259,7 +280,7 @@ func (r *packageCommon) updatePackageRevision(ctx context.Context, name string, 
 		return nil, false, apierrors.NewBadRequest(fmt.Sprintf("expected PackageRevision object, got %T", newRuntimeObj))
 	}
 
-	repositoryName, err := ParseRepositoryName(name)
+	repositoryName, err := util.ParseRepositoryName(name)
 	if err != nil {
 		return nil, false, apierrors.NewBadRequest(fmt.Sprintf("invalid name %q", name))
 	}
@@ -279,7 +300,7 @@ func (r *packageCommon) updatePackageRevision(ctx context.Context, name string, 
 		return nil, false, apierrors.NewInternalError(fmt.Errorf("error getting repository %v: %w", repositoryID, err))
 	}
 
-	var parentPackage *engine.PackageRevision
+	var parentPackage repository.PackageRevision
 	if newApiPkgRev.Spec.Parent != nil && newApiPkgRev.Spec.Parent.Name != "" {
 		p, err := r.getRepoPkgRev(ctx, newApiPkgRev.Spec.Parent.Name)
 		if err != nil {
@@ -289,7 +310,7 @@ func (r *packageCommon) updatePackageRevision(ctx context.Context, name string, 
 	}
 
 	if !isCreate {
-		rev, err := r.cad.UpdatePackageRevision(ctx, &repositoryObj, oldRepoPkgRev, oldApiPkgRev.(*api.PackageRevision), newApiPkgRev, parentPackage)
+		rev, err := r.cad.UpdatePackageRevision(ctx, "", &repositoryObj, oldRepoPkgRev, oldApiPkgRev.(*api.PackageRevision), newApiPkgRev, parentPackage)
 		if err != nil {
 			return nil, false, apierrors.NewInternalError(err)
 		}
@@ -371,7 +392,7 @@ func (r *packageCommon) updatePackage(ctx context.Context, name string, objInfo 
 		return nil, false, apierrors.NewBadRequest(fmt.Sprintf("expected Package object, got %T", newRuntimeObj))
 	}
 
-	repositoryName, err := ParseRepositoryName(name)
+	repositoryName, err := util.ParseRepositoryName(name)
 	if err != nil {
 		return nil, false, apierrors.NewBadRequest(fmt.Sprintf("invalid name %q", name))
 	}
@@ -421,7 +442,7 @@ func (r *packageCommon) validateDelete(ctx context.Context, deleteValidation res
 			return nil, err
 		}
 	}
-	repositoryName, err := ParseRepositoryName(repoName)
+	repositoryName, err := util.ParseRepositoryName(repoName)
 	if err != nil {
 		return nil, apierrors.NewBadRequest(fmt.Sprintf("invalid name %q", repoName))
 	}
@@ -468,4 +489,19 @@ func (r *packageCommon) validateUpdate(ctx context.Context, newRuntimeObj runtim
 
 	r.updateStrategy.Canonicalize(newRuntimeObj)
 	return nil
+}
+
+func getPackageMutexKey(namespace, name string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
+}
+
+func getMutexForPackage(pkgMutexKey string) *sync.Mutex {
+	mutexMapMutex.Lock()
+	defer mutexMapMutex.Unlock()
+	pkgMutex, alreadyPresent := pkgRevOperationMutexes[pkgMutexKey]
+	if !alreadyPresent {
+		pkgMutex = &sync.Mutex{}
+		pkgRevOperationMutexes[pkgMutexKey] = pkgMutex
+	}
+	return pkgMutex
 }

@@ -16,11 +16,11 @@ package e2e
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,12 +32,10 @@ import (
 	"github.com/nephio-project/porch/pkg/repository"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
@@ -151,13 +149,13 @@ func (t *PorchSuite) TestCloneFromUpstream(ctx context.Context) {
 	var list porchapi.PackageRevisionList
 	t.ListE(ctx, &list, client.InNamespace(t.Namespace))
 
-	basens := MustFindPackageRevision(t.T, &list, repository.PackageRevisionKey{Repository: "test-blueprints", Package: "basens", Revision: "v1"})
+	upstreamPr := MustFindPackageRevision(t.T, &list, repository.PackageRevisionKey{Repository: "test-blueprints", Package: "basens", Revision: "v1"})
 
 	// Register the repository as 'downstream'
 	t.RegisterMainGitRepositoryF(ctx, "downstream")
 
 	// Create PackageRevision from upstream repo
-	pr := &porchapi.PackageRevision{
+	clonedPr := &porchapi.PackageRevision{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "PackageRevision",
 			APIVersion: porchapi.SchemeGroupVersion.String(),
@@ -175,7 +173,7 @@ func (t *PorchSuite) TestCloneFromUpstream(ctx context.Context) {
 					Clone: &porchapi.PackageCloneTaskSpec{
 						Upstream: porchapi.UpstreamPackage{
 							UpstreamRef: &porchapi.PackageRevisionRef{
-								Name: basens.Name,
+								Name: upstreamPr.Name,
 							},
 						},
 					},
@@ -184,13 +182,13 @@ func (t *PorchSuite) TestCloneFromUpstream(ctx context.Context) {
 		},
 	}
 
-	t.CreateF(ctx, pr)
+	t.CreateF(ctx, clonedPr)
 
 	// Get istions resources
 	var istions porchapi.PackageRevisionResources
 	t.GetF(ctx, client.ObjectKey{
 		Namespace: t.Namespace,
-		Name:      pr.Name,
+		Name:      clonedPr.Name,
 	}, &istions)
 
 	kptfile := t.ParseKptfileF(&istions)
@@ -237,6 +235,57 @@ func (t *PorchSuite) TestCloneFromUpstream(ctx context.Context) {
 	}
 }
 
+func (t *PorchSuite) TestConcurrentClones(ctx context.Context) {
+	const (
+		upstreamRepository   = "upstream"
+		upstreamPackage      = "basens"
+		downstreamRepository = "downstream"
+		downstreamPackage    = "istions-concurrent"
+		workspace            = "test-workspace"
+	)
+
+	// Register Upstream and Downstream Repositories
+	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, upstreamRepository, "")
+	t.RegisterMainGitRepositoryF(ctx, downstreamRepository)
+
+	var list porchapi.PackageRevisionList
+	t.ListE(ctx, &list, client.InNamespace(t.Namespace))
+	upstreamPr := MustFindPackageRevision(t.T,
+		&list,
+		repository.PackageRevisionKey{
+			Repository: upstreamRepository,
+			Package:    upstreamPackage,
+			Revision:   "v1"})
+
+	// Create PackageRevision from upstream repo
+	clonedPr := t.CreatePackageSkeleton(downstreamRepository, downstreamPackage, workspace)
+	clonedPr.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeClone,
+			Clone: &porchapi.PackageCloneTaskSpec{
+				Upstream: porchapi.UpstreamPackage{
+					UpstreamRef: &porchapi.PackageRevisionRef{
+						Name: upstreamPr.Name,
+					},
+				},
+			},
+		},
+	}
+
+	// Two clients at the same time try to run the Create operation for the clone
+	cloneFunction := func() any {
+		return t.Client.Create(ctx, clonedPr)
+	}
+	results := RunInParallel(cloneFunction, cloneFunction)
+
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
+}
+
 func (t *PorchSuite) TestInitEmptyPackage(ctx context.Context) {
 	// Create a new package via init, no task specified
 	const (
@@ -260,7 +309,7 @@ func (t *PorchSuite) TestInitEmptyPackage(ctx context.Context) {
 			Namespace: t.Namespace,
 		},
 		Spec: porchapi.PackageRevisionSpec{
-			PackageName:    "empty-package",
+			PackageName:    packageName,
 			WorkspaceName:  workspace,
 			RepositoryName: repository,
 		},
@@ -283,6 +332,39 @@ func (t *PorchSuite) TestInitEmptyPackage(ctx context.Context) {
 	}); !cmp.Equal(want, got) {
 		t.Fatalf("unexpected %s/%s package info (-want, +got) %s", newPackage.Namespace, newPackage.Name, cmp.Diff(want, got))
 	}
+}
+
+func (t *PorchSuite) TestConcurrentInits(ctx context.Context) {
+	// Create a new package via init, no task specified
+	const (
+		repository  = "git-concurrent"
+		packageName = "empty-package-concurrent"
+		revision    = "v1"
+		workspace   = "test-workspace"
+		description = "empty-package description"
+	)
+
+	// Register the repository
+	t.RegisterMainGitRepositoryF(ctx, repository)
+
+	// Two clients try to create the same new draft package
+	pr := t.CreatePackageSkeleton(repository, packageName, workspace)
+	creationFunction := func() any {
+		return t.Client.Create(ctx, pr)
+	}
+	results := RunInParallel(creationFunction, creationFunction)
+
+	// one client succeeds; one receives a conflict error
+	expectedResultCount := 2
+	actualResultCount := len(results)
+	assert.Equal(t, expectedResultCount, actualResultCount, "expected %d results but was %d", expectedResultCount, actualResultCount)
+
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
 }
 
 func (t *PorchSuite) TestInitTaskPackage(ctx context.Context) {
@@ -568,6 +650,65 @@ func (t *PorchSuite) TestEditPackageRevision(ctx context.Context) {
 	assert.Equal(t, 2, len(tasks))
 }
 
+func (t *PorchSuite) TestConcurrentEdits(ctx context.Context) {
+	const (
+		repository  = "edit-test"
+		packageName = "simple-package-concurrent"
+		workspace   = "workspace"
+		workspace2  = "workspace2"
+	)
+
+	t.RegisterMainGitRepositoryF(ctx, repository)
+
+	// Create a new package (via init)
+	pr := t.CreatePackageSkeleton(repository, packageName, workspace)
+	t.CreateF(ctx, pr)
+
+	// Publish and approve the source package to make it a valid source for edit.
+	pr.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	t.UpdateF(ctx, pr)
+	pr.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	t.UpdateApprovalF(ctx, pr, metav1.UpdateOptions{})
+
+	// Create a new revision of the package with a source that is a revision
+	// of the same package.
+	editPR := t.CreatePackageSkeleton(repository, packageName, workspace2)
+	editPR.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeEdit,
+			Edit: &porchapi.PackageEditTaskSpec{
+				Source: &porchapi.PackageRevisionRef{
+					Name: pr.Name,
+				},
+			},
+		},
+	}
+
+	// Two clients try to create the new package at the same time
+	editFunction := func() any {
+		return t.Client.Create(ctx, editPR)
+	}
+	results := RunInParallel(
+		editFunction,
+		editFunction)
+
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
+
+	// Check its task list
+	var pkgRev porchapi.PackageRevision
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      editPR.Name,
+	}, &pkgRev)
+	tasks := pkgRev.Spec.Tasks
+	assert.Equal(t, 2, len(tasks))
+}
+
 // Test will initialize an empty package, update its resources, adding a function
 // to the Kptfile's pipeline, and then check that the package was re-rendered.
 func (t *PorchSuite) TestUpdateResources(ctx context.Context) {
@@ -673,13 +814,58 @@ func (t *PorchSuite) TestUpdateResourcesEmptyPatch(ctx context.Context) {
 	t.CreateF(ctx, pr)
 
 	// Check its task list
-	var newPackage porchapi.PackageRevision
+	var pkgBeforeUpdate porchapi.PackageRevision
 	t.GetF(ctx, client.ObjectKey{
 		Namespace: t.Namespace,
 		Name:      pr.Name,
-	}, &newPackage)
-	tasksBeforeUpdate := newPackage.Spec.Tasks
+	}, &pkgBeforeUpdate)
+	tasksBeforeUpdate := pkgBeforeUpdate.Spec.Tasks
 	assert.Equal(t, 2, len(tasksBeforeUpdate))
+
+	// Get the package resources
+	var resourcesBeforeUpdate porchapi.PackageRevisionResources
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      pr.Name,
+	}, &resourcesBeforeUpdate)
+
+	// "Update" the package resources, without changing anything
+	t.UpdateF(ctx, &resourcesBeforeUpdate)
+
+	// Check the task list
+	var pkgAfterUpdate porchapi.PackageRevision
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      pr.Name,
+	}, &pkgAfterUpdate)
+	tasksAfterUpdate := pkgAfterUpdate.Spec.Tasks
+	assert.Equal(t, 2, len(tasksAfterUpdate))
+
+	assert.True(t, reflect.DeepEqual(tasksBeforeUpdate, tasksAfterUpdate))
+
+	// Get the package resources
+	var resourcesAfterUpdate porchapi.PackageRevisionResources
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      pr.Name,
+	}, &resourcesAfterUpdate)
+
+	assert.Equal(t, 3, len(resourcesAfterUpdate.Spec.Resources))
+	assert.True(t, reflect.DeepEqual(resourcesBeforeUpdate, resourcesAfterUpdate))
+}
+
+func (t *PorchSuite) TestConcurrentResourceUpdates(ctx context.Context) {
+	const (
+		repository  = "concurrent-update-test"
+		packageName = "simple-package"
+		workspace   = "workspace"
+	)
+
+	t.RegisterMainGitRepositoryF(ctx, repository)
+
+	// Create a new package (via init)
+	pr := t.CreatePackageSkeleton(repository, packageName, workspace)
+	t.CreateF(ctx, pr)
 
 	// Get the package resources
 	var newPackageResources porchapi.PackageRevisionResources
@@ -688,85 +874,18 @@ func (t *PorchSuite) TestUpdateResourcesEmptyPatch(ctx context.Context) {
 		Name:      pr.Name,
 	}, &newPackageResources)
 
-	// "Update" the package resources, without changing anything
-	t.UpdateF(ctx, &newPackageResources)
-
-	// Check the task list
-	var newPackageUpdated porchapi.PackageRevision
-	t.GetF(ctx, client.ObjectKey{
-		Namespace: t.Namespace,
-		Name:      pr.Name,
-	}, &newPackageUpdated)
-	tasksAfterUpdate := newPackageUpdated.Spec.Tasks
-	assert.Equal(t, 2, len(tasksAfterUpdate))
-
-	assert.True(t, reflect.DeepEqual(tasksBeforeUpdate, tasksAfterUpdate))
-}
-
-func (t *PorchSuite) TestFunctionRepository(ctx context.Context) {
-	repo := &configapi.Repository{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "function-repository",
-			Namespace: t.Namespace,
-		},
-		Spec: configapi.RepositorySpec{
-			Description: "Test Function Repository",
-			Type:        configapi.RepositoryTypeOCI,
-			Content:     configapi.RepositoryContentFunction,
-			Oci: &configapi.OciRepository{
-				Registry: "gcr.io/kpt-fn",
-			},
-		},
+	// "Update" the package resources with two clients at the same time
+	updateFunction := func() any {
+		return t.Client.Update(ctx, &newPackageResources)
 	}
-	t.CreateF(ctx, repo)
+	results := RunInParallel(updateFunction, updateFunction)
 
-	t.Cleanup(func() {
-		t.DeleteL(ctx, &configapi.Repository{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      repo.Name,
-				Namespace: repo.Namespace,
-			},
-		})
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
 	})
-
-	// Make sure the repository is ready before we test to (hopefully)
-	// avoid flakiness.
-	t.WaitUntilRepositoryReady(ctx, repo.Name, repo.Namespace)
-
-	t.Log("Waiting for 1 minute to avoid most of the initial transient period")
-	<-time.NewTimer(1 * time.Minute).C
-
-	t.Log("Waiting for the gcr.io/kpt-fn repository to be cached in porch")
-	timeout := 5 * time.Minute
-	list := porchapi.FunctionList{}
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		err := t.Client.List(ctx, &list, client.InNamespace(t.Namespace))
-		if err != nil {
-			if apierrors.IsTimeout(err) ||
-				errors.Is(err, os.ErrDeadlineExceeded) ||
-				errors.Is(err, context.DeadlineExceeded) {
-				// in case of a timeout, we simply retry
-				t.Logf("timeout -> retry: %v", err)
-				return false, nil
-			} else {
-				// unfortunately, transient errors can happen during normal operation, so we retry instead of failing
-				t.Logf("Warning: error listing functions in gcr.io/kpt-fn repository: %v", err)
-				return false, nil
-			}
-		}
-		if len(list.Items) == 0 {
-			// unfortunately, sometimes an empty list is returned without any errors during the transient period, so we retry instead of failing
-			t.Log("Warning: an empty list of functions was returned (temporarily?)")
-			return false, nil
-		}
-		return true, nil
-	})
-	if err != nil {
-		t.Errorf("Error listing functions in gcr.io/kpt-fn repository with timeout of %v: %v", timeout, err)
-	}
-	if got := len(list.Items); got == 0 {
-		t.Errorf("Found no functions in gcr.io/kpt-fn repository; expected at least one")
-	}
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
 }
 
 func (t *PorchSuite) NewClientWithTimeout(timeout time.Duration) client.Client {
@@ -864,6 +983,146 @@ func (t *PorchSuite) TestProposeApprove(ctx context.Context) {
 	}
 }
 
+func (t *PorchSuite) TestConcurrentProposeApprove(ctx context.Context) {
+	const (
+		repository  = "lifecycle"
+		packageName = "test-package-concurrent"
+		workspace   = "workspace"
+	)
+
+	// Register the repository
+	t.RegisterMainGitRepositoryF(ctx, repository)
+
+	// Create a new package (via init)
+	pr := t.CreatePackageSkeleton(repository, packageName, workspace)
+	pr.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeInit,
+			Init: &porchapi.PackageInitTaskSpec{},
+		},
+	}
+	t.CreateF(ctx, pr)
+
+	var pkg porchapi.PackageRevision
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      pr.Name,
+	}, &pkg)
+
+	// Propose the package revision to be finalized
+	pkg.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	proposeFunction := func() any {
+		return t.Client.Update(ctx, &pkg)
+	}
+	proposeResults := RunInParallel(proposeFunction, proposeFunction)
+
+	assert.Contains(t, proposeResults, nil, "expected one 'propose' request to succeed, but did not happen - results: %v", proposeResults)
+
+	conflictFailurePresent := slices.ContainsFunc(proposeResults, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one 'propose' request to fail with a conflict, but did not happen - results: %v", proposeResults)
+
+	var proposed porchapi.PackageRevision
+	t.GetF(ctx, client.ObjectKey{
+		Namespace: t.Namespace,
+		Name:      pr.Name,
+	}, &proposed)
+
+	// Approve the package
+	proposed.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	approveFunction := func() any {
+		_, err := t.Clientset.PorchV1alpha1().PackageRevisions(proposed.Namespace).UpdateApproval(ctx, proposed.Name, &proposed, metav1.UpdateOptions{})
+		return err
+	}
+	approveResults := RunInParallel(approveFunction, approveFunction)
+
+	assert.Contains(t, approveResults, nil, "expected one 'approve' request to succeed, but did not happen - results: %v", approveResults)
+
+	conflictFailurePresent = slices.ContainsFunc(approveResults, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one 'approve' request to fail with a conflict, but did not happen - results: %v", approveResults)
+}
+
+func (t *PorchSuite) TestSubfolderPackageRevisionIncrementation(ctx context.Context) {
+	const (
+		repository           = "lifecycle"
+		subfolderRepository  = "repo-in-subfolder"
+		subfolderDirectory   = "randomRepoFolder"
+		normalPackageName    = "test-package"
+		subfolderPackageName = "randomPackageFolder/test-package"
+		workspace            = "workspace"
+		workspace2           = "workspace2"
+	)
+
+	// Register the repositories
+	t.RegisterMainGitRepositoryF(ctx, repository)
+	t.RegisterGitRepositoryWithDirectoryF(ctx, subfolderRepository, subfolderDirectory)
+
+	// Create a new package (via init)
+	subfolderPr := t.CreatePackageDraftF(ctx, repository, subfolderPackageName, workspace)
+	prInSubfolder := t.CreatePackageDraftF(ctx, subfolderRepository, normalPackageName, workspace)
+
+	// Propose and approve the package revisions
+	subfolderPr.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	prInSubfolder.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	t.UpdateF(ctx, subfolderPr)
+	t.UpdateF(ctx, prInSubfolder)
+
+	subfolderPr.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	prInSubfolder.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	subfolderPr = t.UpdateApprovalF(ctx, subfolderPr, metav1.UpdateOptions{})
+	prInSubfolder = t.UpdateApprovalF(ctx, prInSubfolder, metav1.UpdateOptions{})
+
+	assert.Equal(t, porchapi.PackageRevisionLifecyclePublished, subfolderPr.Spec.Lifecycle)
+	assert.Equal(t, "v1", subfolderPr.Spec.Revision)
+	assert.Equal(t, porchapi.PackageRevisionLifecyclePublished, prInSubfolder.Spec.Lifecycle)
+	assert.Equal(t, "v1", prInSubfolder.Spec.Revision)
+
+	// Create new package revisions via edit/copy
+	editedSubfolderPr := t.CreatePackageSkeleton(repository, subfolderPackageName, workspace2)
+	editedSubfolderPr.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeEdit,
+			Edit: &porchapi.PackageEditTaskSpec{
+				Source: &porchapi.PackageRevisionRef{
+					Name: subfolderPr.Name,
+				},
+			},
+		},
+	}
+	t.CreateF(ctx, editedSubfolderPr)
+	editedPrInSubfolder := t.CreatePackageSkeleton(subfolderRepository, normalPackageName, workspace2)
+	editedPrInSubfolder.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeEdit,
+			Edit: &porchapi.PackageEditTaskSpec{
+				Source: &porchapi.PackageRevisionRef{
+					Name: prInSubfolder.Name,
+				},
+			},
+		},
+	}
+	t.CreateF(ctx, editedPrInSubfolder)
+
+	// Propose and approve these package revisions as well
+	editedSubfolderPr.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	editedPrInSubfolder.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	t.UpdateF(ctx, editedSubfolderPr)
+	t.UpdateF(ctx, editedPrInSubfolder)
+
+	editedSubfolderPr.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	editedPrInSubfolder.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	editedSubfolderPr = t.UpdateApprovalF(ctx, editedSubfolderPr, metav1.UpdateOptions{})
+	editedPrInSubfolder = t.UpdateApprovalF(ctx, editedPrInSubfolder, metav1.UpdateOptions{})
+
+	assert.Equal(t, porchapi.PackageRevisionLifecyclePublished, editedSubfolderPr.Spec.Lifecycle)
+	assert.Equal(t, "v2", editedSubfolderPr.Spec.Revision)
+	assert.Equal(t, porchapi.PackageRevisionLifecyclePublished, editedPrInSubfolder.Spec.Lifecycle)
+	assert.Equal(t, "v2", editedPrInSubfolder.Spec.Revision)
+}
+
 func (t *PorchSuite) TestDeleteDraft(ctx context.Context) {
 	const (
 		repository  = "delete-draft"
@@ -890,6 +1149,48 @@ func (t *PorchSuite) TestDeleteDraft(ctx context.Context) {
 		},
 	})
 
+	t.MustNotExist(ctx, &draft)
+}
+
+func (t *PorchSuite) TestConcurrentDeletes(ctx context.Context) {
+	const (
+		repository  = "delete-draft"
+		packageName = "test-delete-draft-concurrent"
+		revision    = "v1"
+		workspace   = "test-workspace"
+	)
+
+	// Register the repository and create a draft package
+	t.RegisterMainGitRepositoryF(ctx, repository)
+	created := t.CreatePackageDraftF(ctx, repository, packageName, workspace)
+
+	// Check the package exists
+	var draft porchapi.PackageRevision
+	t.MustExist(ctx, client.ObjectKey{Namespace: t.Namespace, Name: created.Name}, &draft)
+
+	// Delete the same package with two clients at the same time
+	deleteFunction := func() any {
+		return t.Client.Delete(ctx, &porchapi.PackageRevision{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: t.Namespace,
+				Name:      created.Name,
+			},
+		})
+	}
+	results := RunInParallel(
+		deleteFunction,
+		deleteFunction)
+
+	expectedResultCount := 2
+	actualResultCount := len(results)
+	assert.Equal(t, expectedResultCount, actualResultCount, "expected %d results but was %d", expectedResultCount, actualResultCount)
+
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
 	t.MustNotExist(ctx, &draft)
 }
 
@@ -978,6 +1279,44 @@ func (t *PorchSuite) TestDeleteFinal(ctx context.Context) {
 	})
 
 	t.MustNotExist(ctx, &pkg)
+}
+
+func (t *PorchSuite) TestConcurrentProposeDeletes(ctx context.Context) {
+	const (
+		repository  = "delete-final"
+		packageName = "test-delete-final-concurrent"
+		workspace   = "workspace"
+	)
+
+	// Register the repository and create a draft package
+	t.RegisterMainGitRepositoryF(ctx, repository)
+	created := t.CreatePackageDraftF(ctx, repository, packageName, workspace)
+	// Check the package exists
+	var pkg porchapi.PackageRevision
+	t.MustExist(ctx, client.ObjectKey{Namespace: t.Namespace, Name: created.Name}, &pkg)
+
+	// Propose and approve the package revision to be finalized
+	pkg.Spec.Lifecycle = porchapi.PackageRevisionLifecycleProposed
+	t.UpdateF(ctx, &pkg)
+	pkg.Spec.Lifecycle = porchapi.PackageRevisionLifecyclePublished
+	t.UpdateApprovalF(ctx, &pkg, metav1.UpdateOptions{})
+
+	t.MustExist(ctx, client.ObjectKey{Namespace: t.Namespace, Name: created.Name}, &pkg)
+
+	// Propose deletion with two clients at once
+	pkg.Spec.Lifecycle = porchapi.PackageRevisionLifecycleDeletionProposed
+	proposeDeleteFunction := func() any {
+		_, err := t.Clientset.PorchV1alpha1().PackageRevisions(pkg.Namespace).UpdateApproval(ctx, pkg.Name, &pkg, metav1.UpdateOptions{})
+		return err
+	}
+	proposeDeleteResults := RunInParallel(proposeDeleteFunction, proposeDeleteFunction)
+
+	assert.Contains(t, proposeDeleteResults, nil, "expected one 'propose-delete' request to succeed, but did not happen - results: %v", proposeDeleteResults)
+
+	conflictFailurePresent := slices.ContainsFunc(proposeDeleteResults, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one 'propose-delete' request to fail with a conflict, but did not happen")
 }
 
 func (t *PorchSuite) TestProposeDeleteAndUndo(ctx context.Context) {
@@ -1353,7 +1692,63 @@ func (t *PorchSuite) TestPackageUpdate(ctx context.Context) {
 	if _, found := revisionResources.Spec.Resources["resourcequota.yaml"]; !found {
 		t.Errorf("Updated package should contain 'resourcequota.yaml` file")
 	}
+}
 
+func (t *PorchSuite) TestConcurrentPackageUpdates(ctx context.Context) {
+	const (
+		gitRepository = "package-update"
+		packageName   = "testns-concurrent"
+		workspace     = "test-workspace"
+	)
+
+	t.RegisterGitRepositoryF(ctx, testBlueprintsRepo, "test-blueprints", "")
+
+	var list porchapi.PackageRevisionList
+	t.ListE(ctx, &list, client.InNamespace(t.Namespace))
+
+	basensV1 := MustFindPackageRevision(t.T, &list, repository.PackageRevisionKey{Repository: "test-blueprints", Package: "basens", Revision: "v1"})
+	basensV2 := MustFindPackageRevision(t.T, &list, repository.PackageRevisionKey{Repository: "test-blueprints", Package: "basens", Revision: "v2"})
+
+	// Register the repository as 'downstream'
+	t.RegisterMainGitRepositoryF(ctx, gitRepository)
+
+	// Create PackageRevision from upstream repo
+	pr := t.CreatePackageSkeleton(gitRepository, packageName, workspace)
+	pr.Spec.Tasks = []porchapi.Task{
+		{
+			Type: porchapi.TaskTypeClone,
+			Clone: &porchapi.PackageCloneTaskSpec{
+				Upstream: porchapi.UpstreamPackage{
+					UpstreamRef: &porchapi.PackageRevisionRef{
+						Name: basensV1.Name,
+					},
+				},
+			},
+		},
+	}
+	t.CreateF(ctx, pr)
+
+	upstream := pr.Spec.Tasks[0].Clone.Upstream.DeepCopy()
+	upstream.UpstreamRef.Name = basensV2.Name
+	pr.Spec.Tasks = append(pr.Spec.Tasks, porchapi.Task{
+		Type: porchapi.TaskTypeUpdate,
+		Update: &porchapi.PackageUpdateTaskSpec{
+			Upstream: *upstream,
+		},
+	})
+
+	// Two clients at the same time try to update the downstream package
+	updateFunction := func() any {
+		return t.Client.Update(ctx, pr, &client.UpdateOptions{})
+	}
+	results := RunInParallel(updateFunction, updateFunction)
+
+	assert.Contains(t, results, nil, "expected one request to succeed, but did not happen - results: %v", results)
+
+	conflictFailurePresent := slices.ContainsFunc(results, func(eachResult any) bool {
+		return eachResult != nil && strings.Contains(eachResult.(error).Error(), "another request is already in progress")
+	})
+	assert.True(t, conflictFailurePresent, "expected one request to fail with a conflict, but did not happen - results: %v", results)
 }
 
 func (t *PorchSuite) TestRegisterRepository(ctx context.Context) {
@@ -1361,7 +1756,6 @@ func (t *PorchSuite) TestRegisterRepository(ctx context.Context) {
 		repository = "register"
 	)
 	t.RegisterMainGitRepositoryF(ctx, repository,
-		withContent(configapi.RepositoryContentPackage),
 		withType(configapi.RepositoryTypeGit),
 		WithDeployment())
 
@@ -1371,9 +1765,6 @@ func (t *PorchSuite) TestRegisterRepository(ctx context.Context) {
 		Name:      repository,
 	}, &repo)
 
-	if got, want := repo.Spec.Content, configapi.RepositoryContentPackage; got != want {
-		t.Errorf("Repo Content: got %q, want %q", got, want)
-	}
 	if got, want := repo.Spec.Type, configapi.RepositoryTypeGit; got != want {
 		t.Errorf("Repo Type: got %q, want %q", got, want)
 	}
@@ -1625,7 +2016,7 @@ func (t *PorchSuite) TestPodEvaluator(ctx context.Context) {
 
 	const (
 		generateFolderImage = "gcr.io/kpt-fn/generate-folders:v0.1.1" // This function is a TS based function.
-		setAnnotationsImage = "gcr.io/kpt-fn/set-annotations:v0.1.3"  // set-annotations:v0.1.3 is an older version that porch maps it neither to built-in nor exec.
+		setAnnotationsImage = "gcr.io/kpt-fn/set-annotations:v0.1.3"  // set-annotations:v0.1.3 is an older version that porch maps neither to built-in nor exec.
 	)
 
 	// Register the repository as 'git-fn'
@@ -1826,6 +2217,104 @@ func (t *PorchSuite) TestPodEvaluatorWithFailure(ctx context.Context) {
 	}
 }
 
+func (t *PorchSuite) TestLargePackageRevision(ctx context.Context) {
+	const (
+		setAnnotationsImage = "gcr.io/kpt-fn/set-annotations:v0.1.3" // set-annotations:v0.1.3 is an older version that porch maps neither to built-in nor exec.
+		testDataSize        = 5 * 1024 * 1024
+	)
+
+	t.RegisterMainGitRepositoryF(ctx, "git-fn-pod-large")
+
+	// Create Package Revision
+	pr := &porchapi.PackageRevision{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       porchapi.PackageRevisionGVR.Resource,
+			APIVersion: porchapi.SchemeGroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: t.Namespace,
+		},
+		Spec: porchapi.PackageRevisionSpec{
+			PackageName:    "new-package",
+			WorkspaceName:  "workspace",
+			RepositoryName: "git-fn-pod-large",
+			Tasks: []porchapi.Task{
+				{
+					Type: porchapi.TaskTypeInit,
+					Init: &porchapi.PackageInitTaskSpec{
+						Description: "this is a test",
+					},
+				},
+			},
+		},
+	}
+
+	t.CreateF(ctx, pr)
+
+	var prr porchapi.PackageRevisionResources
+	t.GetF(ctx, client.ObjectKeyFromObject(pr), &prr)
+
+	if !t.TestRunnerIsLocal {
+		// pod evaluator is not available in local test mode, skip testing it
+		prr.Spec.Resources["Kptfile"] += `
+pipeline:
+  mutators:
+  - image: ` + setAnnotationsImage + `
+    configMap:
+      test-key: test-val
+    selectors:
+       - name: test-data
+`
+	}
+
+	prr.Spec.Resources["largefile.yaml"] = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-data
+  labels:
+    something: somewhere
+data:
+  value: "` + strings.Repeat("a", testDataSize) + `"
+`
+
+	t.UpdateF(ctx, &prr)
+
+	rs := prr.Status.RenderStatus
+	if rs.Err != "" || rs.Result.ExitCode != 0 {
+		t.Fatalf("Couldn't render large package! exit code: %v,\n%v", rs.Result.ExitCode, rs.Err)
+	}
+
+	// Get package resources
+	t.GetF(ctx, client.ObjectKeyFromObject(pr), &prr)
+
+	for name, obj := range prr.Spec.Resources {
+		if !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		node, err := yaml.Parse(obj)
+		if err != nil {
+			t.Errorf("failed to parse object: %v", err)
+		}
+		if node.GetName() == "test-data" {
+			f := node.Field("data")
+			if f.IsNilOrEmpty() {
+				t.Fatalf("couldn't find data field in test-data")
+			}
+			long_string, err := f.Value.GetString("value")
+			if err != nil {
+				t.Fatalf("couldn't find large string in test-data: %v", err)
+			}
+			if len(long_string) != testDataSize {
+				t.Fatalf("large string size mismatch. want: %v, got: %v", testDataSize, len(long_string))
+			}
+			if !t.TestRunnerIsLocal && (node.GetAnnotations()["test-key"] != "test-val") {
+				t.Errorf("Object (%s %q) should contain annotation `test-key:test-val`, but we got: %v", node.GetKind(), node.GetName(), node.GetAnnotations())
+			}
+		}
+	}
+}
+
 func (t *PorchSuite) TestRepositoryError(ctx context.Context) {
 	const (
 		repositoryName = "repo-with-error"
@@ -1842,7 +2331,6 @@ func (t *PorchSuite) TestRepositoryError(ctx context.Context) {
 		Spec: configapi.RepositorySpec{
 			Description: "Repository With Error",
 			Type:        configapi.RepositoryTypeGit,
-			Content:     configapi.RepositoryContentPackage,
 			Git: &configapi.GitRepository{
 				// Use `invalid` domain: https://www.rfc-editor.org/rfc/rfc6761#section-6.4
 				Repo: "https://repo.invalid/repository.git",

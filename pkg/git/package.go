@@ -1,4 +1,4 @@
-// Copyright 2022 The kpt and Nephio Authors
+// Copyright 2022, 2024 The kpt and Nephio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import (
 	"github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/internal/kpt/pkg"
 	kptfile "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
+	"github.com/nephio-project/porch/pkg/meta"
 	"github.com/nephio-project/porch/pkg/repository"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +51,7 @@ type gitPackageRevision struct {
 	tree          plumbing.Hash       // Cached tree of the package itself, some descendent of commit.Tree()
 	commit        plumbing.Hash       // Current version of the package (commit sha)
 	tasks         []v1alpha1.Task
+	metadata      meta.PackageRevisionMeta
 }
 
 var _ repository.PackageRevision = &gitPackageRevision{}
@@ -219,6 +221,29 @@ func (p *gitPackageRevision) GetResources(ctx context.Context) (*v1alpha1.Packag
 	}, nil
 }
 
+// Creates a gitPackageRevision reference that is acting as the main branch package revision.
+// It doesn't do any git operations, so this package should only be used if the actual git updates
+// were exectued on the main branch.
+func (p *gitPackageRevision) ToMainPackageRevision() repository.PackageRevision {
+	//Need to compute a separate reference, otherwise the ref will be the same as the versioned package,
+	//while the main gitPackageRevision needs to point at the main branch.
+	mainBranchRef := plumbing.NewHashReference(p.repo.branch.RefInLocal(), p.commit)
+	p1 := &gitPackageRevision{
+		repo:          p.repo,
+		path:          p.path,
+		revision:      string(p.repo.branch),
+		workspaceName: p.workspaceName,
+		updated:       p.updated,
+		updatedBy:     p.updatedBy,
+		ref:           mainBranchRef,
+		tree:          p.tree,
+		commit:        p.commit,
+		tasks:         p.tasks,
+	}
+	return p1
+
+}
+
 func (p *gitPackageRevision) GetKptfile(ctx context.Context) (kptfile.KptFile, error) {
 	resources, err := p.repo.GetResources(p.tree)
 	if err != nil {
@@ -291,6 +316,14 @@ func (p *gitPackageRevision) Lifecycle() v1alpha1.PackageRevisionLifecycle {
 
 func (p *gitPackageRevision) UpdateLifecycle(ctx context.Context, new v1alpha1.PackageRevisionLifecycle) error {
 	return p.repo.UpdateLifecycle(ctx, p, new)
+}
+
+func (p *gitPackageRevision) GetMeta() meta.PackageRevisionMeta {
+	return p.metadata
+}
+
+func (p *gitPackageRevision) SetMeta(metadata meta.PackageRevisionMeta) {
+	p.metadata = metadata
 }
 
 // TODO: Define a type `gitPackage` to implement the Repository.Package interface

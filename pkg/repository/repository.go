@@ -1,4 +1,4 @@
-// Copyright 2022 The kpt and Nephio Authors
+// Copyright 2022, 2024 The kpt and Nephio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/nephio-project/porch/api/porch/v1alpha1"
-	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	kptfile "github.com/nephio-project/porch/pkg/kpt/api/kptfile/v1"
+	"github.com/nephio-project/porch/pkg/meta"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -94,6 +94,11 @@ type PackageRevision interface {
 
 	// ResourceVersion returns the Kube resource version of the package
 	ResourceVersion() string
+
+	ToMainPackageRevision() PackageRevision
+
+	GetMeta() meta.PackageRevisionMeta
+	SetMeta(meta.PackageRevisionMeta)
 }
 
 // Package is an abstract package.
@@ -118,14 +123,8 @@ type PackageDraft interface {
 	// Updates desired lifecycle of the package. The lifecycle is applied on Close.
 	UpdateLifecycle(ctx context.Context, new v1alpha1.PackageRevisionLifecycle) error
 	// Finish round of updates.
-	Close(ctx context.Context) (PackageRevision, error)
-}
-
-// Function is an abstract function.
-type Function interface {
-	Name() string
-	GetFunction() (*v1alpha1.Function, error)
-	GetCRD() (*configapi.Function, error)
+	Close(ctx context.Context, version string) (PackageRevision, error)
+	GetName() string
 }
 
 // ListPackageRevisionFilter is a predicate for filtering PackageRevision objects;
@@ -149,13 +148,15 @@ type ListPackageRevisionFilter struct {
 
 // Matches returns true if the provided PackageRevision satisfies the conditions in the filter.
 func (f *ListPackageRevisionFilter) Matches(p PackageRevision) bool {
-	if f.Package != "" && f.Package != p.Key().Package {
+	packageKey := p.Key()
+
+	if f.Package != "" && f.Package != packageKey.Package {
 		return false
 	}
-	if f.Revision != "" && f.Revision != p.Key().Revision {
+	if f.Revision != "" && f.Revision != packageKey.Revision {
 		return false
 	}
-	if f.WorkspaceName != "" && f.WorkspaceName != p.Key().WorkspaceName {
+	if f.WorkspaceName != "" && f.WorkspaceName != packageKey.WorkspaceName {
 		return false
 	}
 	if f.KubeObjectName != "" && f.KubeObjectName != p.KubeObjectName() {
@@ -217,11 +218,9 @@ type Repository interface {
 
 	// Close cleans up any resources associated with the repository
 	Close() error
-}
 
-type FunctionRepository interface {
-	// TODO: Should repository understand functions, or just packages (and function is just a package in an OCI repo?)
-	ListFunctions(ctx context.Context) ([]Function, error)
+	// Refresh the repository
+	Refresh(ctx context.Context) error
 }
 
 // The definitions below would be more appropriately located in a package usable by any Porch component.

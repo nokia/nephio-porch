@@ -1,4 +1,4 @@
-// Copyright 2022 The kpt and Nephio Authors
+// Copyright 2022, 2024 The kpt and Nephio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -1115,7 +1115,7 @@ func (r *gitRepository) pushAndCleanup(ctx context.Context, ph *pushRefSpecBuild
 	return nil
 }
 
-func (r *gitRepository) loadTasks(ctx context.Context, startCommit *object.Commit, packagePath string,
+func (r *gitRepository) loadTasks(_ context.Context, startCommit *object.Commit, packagePath string,
 	workspaceName v1alpha1.WorkspaceName) ([]v1alpha1.Task, error) {
 
 	var logOptions = git.LogOptions{
@@ -1488,7 +1488,7 @@ func (r *gitRepository) UpdateDraftResources(ctx context.Context, draft *gitPack
 	return nil
 }
 
-func (r *gitRepository) CloseDraft(ctx context.Context, d *gitPackageDraft) (*gitPackageRevision, error) {
+func (r *gitRepository) CloseDraft(ctx context.Context, version string, d *gitPackageDraft) (*gitPackageRevision, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -1500,25 +1500,11 @@ func (r *gitRepository) CloseDraft(ctx context.Context, d *gitPackageDraft) (*gi
 
 	switch d.lifecycle {
 	case v1alpha1.PackageRevisionLifecyclePublished, v1alpha1.PackageRevisionLifecycleDeletionProposed:
-		// Finalize the package revision. Assign it a revision number of latest + 1.
-		revisions, err := r.listPackageRevisions(ctx, repository.ListPackageRevisionFilter{
-			Package: d.path,
-		})
-		if err != nil {
-			return nil, err
-		}
 
-		var revs []string
-		for _, rev := range revisions {
-			if v1alpha1.LifecycleIsPublished(r.getLifecycle(ctx, rev)) {
-				revs = append(revs, rev.Key().Revision)
-			}
+		if version == "" {
+			return nil, errors.New("Version cannot be empty for the next package revision")
 		}
-
-		d.revision, err = repository.NextRevisionNumber(revs)
-		if err != nil {
-			return nil, err
-		}
+		d.revision = version
 
 		// Finalize the package revision. Commit it to main branch.
 		commitHash, newTreeHash, commitBase, err := r.commitPackageToMain(ctx, d)
@@ -1729,6 +1715,10 @@ func (r *gitRepository) discoverPackagesInTree(commit *object.Commit, opt Discov
 		klog.Infof("discovered %d packages @%v", len(t.packages), commit.Hash)
 	}
 	return t, nil
+}
+
+func (r *gitRepository) Refresh(_ context.Context) error {
+	return nil
 }
 
 // See https://eli.thegreenplace.net/2021/generic-functions-on-slices-with-go-type-parameters/

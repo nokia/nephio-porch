@@ -175,7 +175,7 @@ run-local: porch
 	--kubeconfig="$(CURDIR)/deployments/local/kubeconfig" \
 	--cache-directory="$(CACHEDIR)" \
 	--function-runner 192.168.8.202:9445 \
-	--repo-sync-frequency=60s
+	--repo-sync-frequency=10m
 
 .PHONY: run-jaeger
 run-jaeger:
@@ -356,5 +356,5 @@ test-e2e: ## Run end-to-end tests
 	E2E=1 go test -v -failfast ./test/e2e/cli
 
 .PHONY: test-e2e-clean
-test-e2e-clean: porchctl ## Run end-to-end tests aginst a newly deployed porch in a newly created kind cluster
+test-e2e-clean: porchctl ## Run end-to-end tests against a newly deployed porch in a newly created kind cluster
 	./scripts/clean-e2e-test.sh

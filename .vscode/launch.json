@@ -18,8 +18,8 @@
                 "--repo-sync-frequency=60s"
             ],
             "cwd": "${workspaceFolder}",
-            "env": { 
-                "CERT_STORAGE_DIR": "${workspaceFolder}/.build/pki/tmp", 
+            "env": {
+                "CERT_STORAGE_DIR": "${workspaceFolder}/.build/pki/tmp",
                 "WEBHOOK_HOST": "localhost",
                 "GOOGLE_API_GO_EXPERIMENTAL_DISABLE_NEW_AUTH_LIB": "true"
             }
@@ -31,8 +31,7 @@
             "mode": "auto",
             "program": "${workspaceFolder}/ng/cmd/main.go",
             "cwd": "${workspaceFolder}/ng",
-            "env": { 
-            }
+            "env": {}
         },
         {
             "name": "Launch unit test function",
@@ -45,7 +44,9 @@
                 "-test.run",
                 "TestEnsureConfigInjection"
             ],
-            "env": { "E2E": "1"}
+            "env": {
+                "E2E": "1"
+            }
         },
         {
             "name": "Launch Controllers",
@@ -54,9 +55,9 @@
             "mode": "auto",
             "program": "${workspaceFolder}/controllers/main.go",
             "cwd": "${workspaceFolder}",
-            "env": { 
-                "ENABLE_PACKAGEVARIANTS": "true", 
-                "ENABLE_PACKAGEVARIANTSETS": "true" 
+            "env": {
+                "ENABLE_PACKAGEVARIANTS": "true",
+                "ENABLE_PACKAGEVARIANTSETS": "true"
             }
         },
         {
@@ -70,7 +71,9 @@
                 "-test.run",
                 "TestE2E/PorchSuite/TestPackageVariantMutationInjectPackage"
             ],
-            "env": { "E2E": "1"}
+            "env": {
+                "E2E": "1"
+            }
         },
         {
             "name": "Launch Func Client",

@@ -27,6 +27,7 @@ import (
 	internalapi "github.com/nephio-project/porch/internal/api/porchinternal/v1alpha1"
 	"github.com/nephio-project/porch/internal/kpt/fnruntime"
 	"github.com/nephio-project/porch/pkg/cache"
+	memorycache "github.com/nephio-project/porch/pkg/cache/memory"
 	"github.com/nephio-project/porch/pkg/engine"
 	"github.com/nephio-project/porch/pkg/meta"
 	"github.com/nephio-project/porch/pkg/registry/porch"
@@ -80,6 +81,7 @@ type ExtraConfig struct {
 	DefaultImagePrefix    string
 	RepoSyncFrequency     time.Duration
 	UseGitCaBundle        bool
+	MaxGrpcMessageSize    int
 }
 
 // Config defines the config for the apiserver
@@ -90,9 +92,10 @@ type Config struct {
 
 // PorchServer contains state for a Kubernetes cluster master/api server.
 type PorchServer struct {
-	GenericAPIServer *genericapiserver.GenericAPIServer
-	coreClient       client.WithWatch
-	cache            *cache.Cache
+	GenericAPIServer          *genericapiserver.GenericAPIServer
+	coreClient                client.WithWatch
+	cache                     cache.Cache
+	PeriodicRepoSyncFrequency time.Duration
 }
 
 type completedConfig struct {
@@ -225,7 +228,7 @@ func (c completedConfig) New() (*PorchServer, error) {
 
 	watcherMgr := engine.NewWatcherManager()
 
-	cache := cache.NewCache(c.ExtraConfig.CacheDirectory, c.ExtraConfig.RepoSyncFrequency, c.ExtraConfig.UseGitCaBundle, cache.CacheOptions{
+	memoryCache := memorycache.NewCache(c.ExtraConfig.CacheDirectory, c.ExtraConfig.RepoSyncFrequency, c.ExtraConfig.UseGitCaBundle, memorycache.CacheOptions{
 		CredentialResolver: credentialResolver,
 		UserInfoProvider:   userInfoProvider,
 		MetadataStore:      metadataStore,
@@ -235,23 +238,17 @@ func (c completedConfig) New() (*PorchServer, error) {
 	runnerOptionsResolver := func(namespace string) fnruntime.RunnerOptions {
 		runnerOptions := fnruntime.RunnerOptions{}
 		runnerOptions.InitDefaults()
-		r := &KubeFunctionResolver{
-			client:             coreClient,
-			defaultImagePrefix: c.ExtraConfig.DefaultImagePrefix,
-			namespace:          namespace,
-		}
-		runnerOptions.ResolveToImage = r.resolveToImagePorch
 
 		return runnerOptions
 	}
 
 	cad, err := engine.NewCaDEngine(
-		engine.WithCache(cache),
+		engine.WithCache(memoryCache),
 		// The order of registering the function runtimes matters here. When
 		// evaluating a function, the runtimes will be tried in the same
 		// order as they are registered.
 		engine.WithBuiltinFunctionRuntime(),
-		engine.WithGRPCFunctionRuntime(c.ExtraConfig.FunctionRunnerAddress),
+		engine.WithGRPCFunctionRuntime(c.ExtraConfig.FunctionRunnerAddress, c.ExtraConfig.MaxGrpcMessageSize),
 		engine.WithCredentialResolver(credentialResolver),
 		engine.WithRunnerOptionsResolver(runnerOptionsResolver),
 		engine.WithReferenceResolver(referenceResolver),
@@ -271,7 +268,9 @@ func (c completedConfig) New() (*PorchServer, error) {
 	s := &PorchServer{
 		GenericAPIServer: genericServer,
 		coreClient:       coreClient,
-		cache:            cache,
+		cache:            memoryCache,
+		// Set background job periodic frequency the same as repo sync frequency.
+		PeriodicRepoSyncFrequency: c.ExtraConfig.RepoSyncFrequency,
 	}
 
 	// Install the groups.
@@ -283,7 +282,7 @@ func (c completedConfig) New() (*PorchServer, error) {
 }
 
 func (s *PorchServer) Run(ctx context.Context) error {
-	porch.RunBackground(ctx, s.coreClient, s.cache)
+	porch.RunBackground(ctx, s.coreClient, s.cache, s.PeriodicRepoSyncFrequency)
 
 	// TODO: Reconsider if the existence of CERT_STORAGE_DIR was a good inidcator for webhook setup,
 	// but for now we keep backward compatiblity
