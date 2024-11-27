@@ -63,14 +63,6 @@ func (t *PvSuite) TestMutationInjector(ctx context.Context) {
 	defer t.DeleteE(ctx, pv1)
 	t.CreateF(ctx, pv1)
 	pv1 = t.WaitUntilPackageVariantIsReady(ctx, client.ObjectKeyFromObject(pv1))
-	t.CheckInjectedSubPackages(ctx, pv1, &api.InjectPackageRevision{
-		PackageRevisionRef: api.PackageRevisionRef{
-			Repo:     upstreamRepository,
-			Package:  "basens",
-			Revision: "v3",
-		},
-		Subdir: "basens",
-	})
 
 	t.Log("** Creating MutationInjector")
 	mi := &api.MutationInjector{
@@ -108,5 +100,13 @@ func (t *PvSuite) TestMutationInjector(ctx context.Context) {
 	t.CreateF(ctx, mi)
 
 	t.WaitUntilPackageVariantHasMutations(ctx, client.ObjectKeyFromObject(pv1))
+	t.CheckInjectedSubPackages(ctx, pv1, &api.InjectPackageRevision{
+		PackageRevisionRef: api.PackageRevisionRef{
+			Repo:     upstreamRepository,
+			Package:  "basens",
+			Revision: "v3",
+		},
+		Subdir: "basens",
+	})
 
 }
