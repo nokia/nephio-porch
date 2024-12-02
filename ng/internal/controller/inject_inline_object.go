@@ -64,23 +64,17 @@ func (m *injectInlineObject) Apply(ctx context.Context, prr *porchapi.PackageRev
 
 	// overwrite injection points
 	pathsToCopy := sets.NewString()
-	for _, ip := range injectionPoints {
-		if ip.GetAnnotation(InjectedByResourceAnnotation) == m.pvKey.String() &&
-			ip.GetAnnotation(InjectedByMutationAnnotation) == m.mutation.Id() {
+	for _, injectionPoint := range injectionPoints {
+		if IsInjectedByMutation(injectionPoint, m.pvKey, m.mutation) {
 			// already injected by us
 			continue
 		}
 
-		pathsToCopy.Insert(ip.PathAnnotation())
-		if toInject.GetMap("spec") != nil {
-			ip.SetMap(toInject.GetMap("spec"), "spec")
-		}
-		if toInject.GetMap("data") != nil {
-			ip.SetMap(toInject.GetMap("data"), "data")
-		}
-		ip.SetAnnotation(InjectedResourceAnnotation, "from-inline-resource")
-		ip.SetAnnotation(InjectedByResourceAnnotation, m.pvKey.String())
-		ip.SetAnnotation(InjectedByMutationAnnotation, m.mutation.Id())
+		pathsToCopy.Insert(injectionPoint.PathAnnotation())
+		CopyData(toInject, injectionPoint)
+		injectionPoint.SetAnnotation(InjectedResourceAnnotation, toInject.GetName())
+		injectionPoint.SetAnnotation(InjectedByResourceAnnotation, m.pvKey.String())
+		injectionPoint.SetAnnotation(InjectedByMutationAnnotation, m.mutation.Id())
 	}
 
 	// overwrite necessary files
@@ -92,4 +86,18 @@ func (m *injectInlineObject) Apply(ctx context.Context, prr *porchapi.PackageRev
 		prr.Spec.Resources[path] = resources[path]
 	}
 	return nil
+}
+
+func IsInjectedByMutation(obj *fn.KubeObject, pvKey types.NamespacedName, mutation *api.Mutation) bool {
+	return obj.GetAnnotation(InjectedByResourceAnnotation) == pvKey.String() &&
+		obj.GetAnnotation(InjectedByMutationAnnotation) == mutation.Id()
+}
+
+func CopyData(src, dst *fn.KubeObject) {
+	if src.GetMap("spec") != nil {
+		dst.SetMap(src.GetMap("spec"), "spec")
+	}
+	if src.GetMap("data") != nil {
+		dst.SetMap(src.GetMap("data"), "data")
+	}
 }

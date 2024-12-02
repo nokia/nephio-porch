@@ -157,17 +157,17 @@ spec:
                         destination:
                           description: The name/namespace of the injection point
                           properties:
+                            group:
+                              type: string
+                            kind:
+                              type: string
                             name:
                               type: string
                             namespace:
                               type: string
-                          required:
-                          - name
+                            version:
+                              type: string
                           type: object
-                        group:
-                          type: string
-                        kind:
-                          type: string
                         package:
                           type: string
                         repo:
@@ -178,15 +178,17 @@ spec:
                           description: The name/namespace of the KRM object in the
                             package
                           properties:
+                            group:
+                              type: string
+                            kind:
+                              type: string
                             name:
                               type: string
                             namespace:
                               type: string
-                          required:
-                          - name
+                            version:
+                              type: string
                           type: object
-                        version:
-                          type: string
                       required:
                       - destination
                       - package

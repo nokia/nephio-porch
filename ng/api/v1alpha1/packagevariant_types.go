@@ -122,6 +122,14 @@ type PackageRef struct {
 	Package string `json:"package,omitempty"`
 }
 
+type FullObjectRef struct {
+	Group     *string `json:"group,omitempty"`
+	Version   *string `json:"version,omitempty"`
+	Kind      *string `json:"kind,omitempty"`
+	Namespace *string `json:"namespace,omitempty"`
+	Name      *string `json:"name,omitempty"`
+}
+
 type ObjectRef struct {
 	Namespace *string `json:"namespace,omitempty"`
 	Name      string  `json:"name"`
@@ -224,13 +232,10 @@ type InjectLiveObject struct {
 type InjectObjectFromPackage struct {
 	// The package revision containing the object to be injected
 	PackageRevisionRef `json:",inline"`
-	Group              string `json:"group,omitempty"`
-	Version            string `json:"version,omitempty"`
-	Kind               string `json:"kind,omitempty"`
 	// The name/namespace of the KRM object in the package
-	Source ObjectRef `json:"source"`
+	Source FullObjectRef `json:"source"`
 	// The name/namespace of the injection point
-	Destination ObjectRef `json:"destination"`
+	Destination FullObjectRef `json:"destination"`
 }
 
 // PackageVariantStatus defines the observed state of PackageVariant
