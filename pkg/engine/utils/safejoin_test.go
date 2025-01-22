@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package engine
+package utils
 
 import (
 	"fmt"
@@ -82,7 +82,7 @@ func TestSafeJoin(t *testing.T) {
 
 	for _, g := range grid {
 		t.Run(fmt.Sprintf("%#v", g), func(t *testing.T) {
-			got, err := filepathSafeJoin(g.base, g.relative)
+			got, err := FilepathSafeJoin(g.base, g.relative)
 			if g.wantError {
 				if err == nil {
 					t.Errorf("got %q and nil error, want error", got)

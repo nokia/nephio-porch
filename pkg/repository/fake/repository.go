@@ -23,22 +23,23 @@ import (
 
 // Implementation of the repository.Repository interface for testing.
 // TODO(mortent): Implement stub functionality for all functions from the interface.
-type Repository struct {
+type FakeRepository struct {
 	PackageRevisions []repository.PackageRevision
 	Packages         []repository.Package
+	RepoVersion      string
 }
 
-var _ repository.Repository = &Repository{}
+var _ repository.Repository = &FakeRepository{}
 
-func (r *Repository) Close() error {
+func (r *FakeRepository) Close() error {
 	return nil
 }
 
-func (r *Repository) Version(ctx context.Context) (string, error) {
-	return "foo", nil
+func (r *FakeRepository) Version(context.Context) (string, error) {
+	return r.RepoVersion, nil
 }
 
-func (r *Repository) ListPackageRevisions(_ context.Context, filter repository.ListPackageRevisionFilter) ([]repository.PackageRevision, error) {
+func (r *FakeRepository) ListPackageRevisions(_ context.Context, filter repository.ListPackageRevisionFilter) ([]repository.PackageRevision, error) {
 	var revs []repository.PackageRevision
 	for _, rev := range r.PackageRevisions {
 		if filter.KubeObjectName != "" && filter.KubeObjectName == rev.KubeObjectName() {
@@ -57,34 +58,34 @@ func (r *Repository) ListPackageRevisions(_ context.Context, filter repository.L
 	return revs, nil
 }
 
-func (r *Repository) CreatePackageRevision(_ context.Context, pr *v1alpha1.PackageRevision) (repository.PackageRevisionDraft, error) {
-	return nil, nil
+func (r *FakeRepository) CreatePackageRevision(context.Context, *v1alpha1.PackageRevision) (repository.PackageRevisionDraft, error) {
+	return &FakePackageRevisionDraft{}, nil
 }
 
-func (r *Repository) ClosePackageRevisionDraft(ctx context.Context, prd repository.PackageRevisionDraft, version string) (repository.PackageRevision, error) {
-	return nil, nil
+func (r *FakeRepository) ClosePackageRevisionDraft(context.Context, repository.PackageRevisionDraft, string) (repository.PackageRevision, error) {
+	return &FakePackageRevision{}, nil
 }
 
-func (r *Repository) DeletePackageRevision(context.Context, repository.PackageRevision) error {
+func (r *FakeRepository) DeletePackageRevision(context.Context, repository.PackageRevision) error {
 	return nil
 }
 
-func (r *Repository) UpdatePackageRevision(context.Context, repository.PackageRevision) (repository.PackageRevisionDraft, error) {
-	return nil, nil
+func (r *FakeRepository) UpdatePackageRevision(context.Context, repository.PackageRevision) (repository.PackageRevisionDraft, error) {
+	return &FakePackageRevisionDraft{}, nil
 }
 
-func (r *Repository) ListPackages(context.Context, repository.ListPackageFilter) ([]repository.Package, error) {
+func (r *FakeRepository) ListPackages(context.Context, repository.ListPackageFilter) ([]repository.Package, error) {
 	return r.Packages, nil
 }
 
-func (r *Repository) CreatePackage(_ context.Context, pr *v1alpha1.PorchPackage) (repository.Package, error) {
-	return nil, nil
+func (r *FakeRepository) CreatePackage(context.Context, *v1alpha1.PorchPackage) (repository.Package, error) {
+	return &FakePackage{}, nil
 }
 
-func (r *Repository) DeletePackage(_ context.Context, pr repository.Package) error {
+func (r *FakeRepository) DeletePackage(context.Context, repository.Package) error {
 	return nil
 }
 
-func (r *Repository) Refresh(_ context.Context) error {
+func (r *FakeRepository) Refresh(context.Context) error {
 	return nil
 }

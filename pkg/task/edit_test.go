@@ -60,7 +60,7 @@ info:
 			},
 		},
 	}
-	repo := &fake.Repository{
+	repo := &fake.FakeRepository{
 		PackageRevisions: []repository.PackageRevision{
 			packageRevision,
 		},

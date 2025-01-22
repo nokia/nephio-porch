@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/nephio-project/porch/pkg/engine"
+	engineutils "github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/repository"
 	"go.opentelemetry.io/otel/trace"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
@@ -92,7 +92,7 @@ func (w *watcher) ResultChan() <-chan watch.Event {
 }
 
 type packageReader interface {
-	watchPackages(ctx context.Context, filter packageRevisionFilter, callback engine.ObjectWatcher) error
+	watchPackages(ctx context.Context, filter packageRevisionFilter, callback engineutils.ObjectWatcher) error
 	listPackageRevisions(ctx context.Context, filter packageRevisionFilter, selector labels.Selector, callback func(ctx context.Context, p repository.PackageRevision) error) error
 }
 

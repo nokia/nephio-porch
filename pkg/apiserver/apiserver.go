@@ -29,6 +29,7 @@ import (
 	"github.com/nephio-project/porch/pkg/cache"
 	memorycache "github.com/nephio-project/porch/pkg/cache/memory"
 	"github.com/nephio-project/porch/pkg/engine"
+	engineutils "github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/meta"
 	"github.com/nephio-project/porch/pkg/registry/porch"
 	"google.golang.org/api/option"
@@ -226,7 +227,7 @@ func (c completedConfig) New() (*PorchServer, error) {
 	referenceResolver := porch.NewReferenceResolver(coreClient)
 	userInfoProvider := &porch.ApiserverUserInfoProvider{}
 
-	watcherMgr := engine.NewWatcherManager()
+	watcherMgr := engineutils.NewWatcherManager()
 
 	memoryCache := memorycache.NewCache(c.ExtraConfig.CacheDirectory, c.ExtraConfig.RepoSyncFrequency, c.ExtraConfig.UseUserDefinedCaBundle, memorycache.CacheOptions{
 		CredentialResolver: credentialResolver,

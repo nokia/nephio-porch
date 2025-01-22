@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/nephio-project/porch/api/porch/v1alpha1"
-	"github.com/nephio-project/porch/pkg/engine"
+	engineutils "github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/repository"
 	"github.com/nephio-project/porch/pkg/repository/fake"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
@@ -88,10 +88,10 @@ func TestWatcherClose(t *testing.T) {
 
 type fakePackageReader struct {
 	sync.WaitGroup
-	callback engine.ObjectWatcher
+	callback engineutils.ObjectWatcher
 }
 
-func (f *fakePackageReader) watchPackages(ctx context.Context, filter packageRevisionFilter, callback engine.ObjectWatcher) error {
+func (f *fakePackageReader) watchPackages(ctx context.Context, filter packageRevisionFilter, callback engineutils.ObjectWatcher) error {
 	f.callback = callback
 	f.Done()
 	return nil

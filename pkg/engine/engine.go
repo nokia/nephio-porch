@@ -23,7 +23,8 @@ import (
 
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
-	cache "github.com/nephio-project/porch/pkg/cache"
+	"github.com/nephio-project/porch/pkg/cache"
+	"github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/meta"
 	"github.com/nephio-project/porch/pkg/repository"
 	"github.com/nephio-project/porch/pkg/task"
@@ -44,7 +45,7 @@ const (
 
 type CaDEngine interface {
 	// ObjectCache() is a cache of all our objects.
-	ObjectCache() WatcherManager
+	ObjectCache() utils.WatcherManager
 
 	UpdatePackageResources(ctx context.Context, repositoryObj *configapi.Repository, oldPackage repository.PackageRevision, old, new *api.PackageRevisionResources) (repository.PackageRevision, *api.RenderStatus, error)
 
@@ -77,14 +78,14 @@ type cadEngine struct {
 
 	userInfoProvider repository.UserInfoProvider
 	metadataStore    meta.MetadataStore
-	watcherManager   *watcherManager
+	watcherManager   utils.WatcherManager
 	taskHandler      task.TaskHandler
 }
 
 var _ CaDEngine = &cadEngine{}
 
 // ObjectCache is a cache of all our objects.
-func (cad *cadEngine) ObjectCache() WatcherManager {
+func (cad *cadEngine) ObjectCache() utils.WatcherManager {
 	return cad.watcherManager
 }
 
@@ -198,12 +199,24 @@ func (cad *cadEngine) CreatePackageRevision(ctx context.Context, repositoryObj *
 	}
 	pkgRevMeta, err = cad.metadataStore.Create(ctx, pkgRevMeta, repositoryObj.Name, repoPkgRev.UID())
 	if err != nil {
+		if (apierrors.IsUnauthorized(err) || apierrors.IsForbidden(err)) && anyBlockOwnerDeletionSet(obj) {
+			return nil, fmt.Errorf("failed to create PackageRev because blockOwnerDeletion is enabled for some ownerReference: %w", err)
+		}
 		return nil, err
 	}
 	repoPkgRev.SetMeta(pkgRevMeta)
 	sent := cad.watcherManager.NotifyPackageRevisionChange(watch.Added, repoPkgRev)
 	klog.Infof("engine: sent %d for new PackageRevision %s/%s", sent, repoPkgRev.KubeObjectNamespace(), repoPkgRev.KubeObjectName())
 	return repoPkgRev, nil
+}
+
+func anyBlockOwnerDeletionSet(pr *api.PackageRevision) bool {
+	for _, owner := range pr.OwnerReferences {
+		if owner.BlockOwnerDeletion == nil || *owner.BlockOwnerDeletion {
+			return true
+		}
+	}
+	return false
 }
 
 // The workspaceName must be unique, because it used to generate the package revision's metadata.name.
@@ -273,6 +286,9 @@ func (cad *cadEngine) UpdatePackageRevision(ctx context.Context, version string,
 
 		err = cad.updatePkgRevMeta(ctx, repoPkgRev, newObj)
 		if err != nil {
+			if (apierrors.IsUnauthorized(err) || apierrors.IsForbidden(err)) && anyBlockOwnerDeletionSet(newObj) {
+				return nil, fmt.Errorf("failed to update PackageRev because blockOwnerDeletion is set for some ownerReference: %w", err)
+			}
 			return nil, err
 		}
 		sent := cad.watcherManager.NotifyPackageRevisionChange(watch.Modified, repoPkgRev)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/nephio-project/porch/internal/kpt/fnruntime"
 	"github.com/nephio-project/porch/pkg/cache"
+	engineutils "github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/kpt"
 	"github.com/nephio-project/porch/pkg/kpt/fn"
 	"github.com/nephio-project/porch/pkg/meta"
@@ -129,7 +130,7 @@ func WithMetadataStore(metadataStore meta.MetadataStore) EngineOption {
 	})
 }
 
-func WithWatcherManager(watcherManager *watcherManager) EngineOption {
+func WithWatcherManager(watcherManager engineutils.WatcherManager) EngineOption {
 	return EngineOptionFunc(func(engine *cadEngine) error {
 		engine.watcherManager = watcherManager
 		return nil

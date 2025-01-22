@@ -23,6 +23,7 @@ import (
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	configapi "github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	"github.com/nephio-project/porch/pkg/engine"
+	engineutils "github.com/nephio-project/porch/pkg/engine/utils"
 	"github.com/nephio-project/porch/pkg/repository"
 	"github.com/nephio-project/porch/pkg/util"
 	"go.opentelemetry.io/otel/trace"
@@ -144,7 +145,7 @@ func (r *packageCommon) listPackages(ctx context.Context, filter packageFilter, 
 	return nil
 }
 
-func (r *packageCommon) watchPackages(ctx context.Context, filter packageRevisionFilter, callback engine.ObjectWatcher) error {
+func (r *packageCommon) watchPackages(ctx context.Context, filter packageRevisionFilter, callback engineutils.ObjectWatcher) error {
 	if err := r.cad.ObjectCache().WatchPackageRevisions(ctx, filter.ListPackageRevisionFilter, callback); err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package engine
+package utils
 
 import (
 	"context"
@@ -23,17 +23,18 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// ObjectCache caches objects across repositories, and allows for watching.
+// WatcherManager caches objects across repositories, and allows for watching.
 type WatcherManager interface {
 	WatchPackageRevisions(ctx context.Context, filter repository.ListPackageRevisionFilter, callback ObjectWatcher) error
+	NotifyPackageRevisionChange(eventType watch.EventType, obj repository.PackageRevision) int
 }
 
-// PackageRevisionWatcher is the callback interface for watchers.
+// ObjectWatcher is the callback interface for watchers.
 type ObjectWatcher interface {
 	OnPackageRevisionChange(eventType watch.EventType, obj repository.PackageRevision) bool
 }
 
-func NewWatcherManager() *watcherManager {
+func NewWatcherManager() WatcherManager {
 	return &watcherManager{}
 }
 
@@ -59,7 +60,7 @@ type watcher struct {
 	filter repository.ListPackageRevisionFilter
 }
 
-// WatchPackageRevision adds a change-listener that will be called for all changes.
+// WatchPackageRevisions adds a change-listener that will be called for all changes.
 func (r *watcherManager) WatchPackageRevisions(ctx context.Context, filter repository.ListPackageRevisionFilter, callback ObjectWatcher) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -93,7 +94,7 @@ func (r *watcherManager) WatchPackageRevisions(ctx context.Context, filter repos
 	return nil
 }
 
-// notifyPackageRevisionChange is called to send a change notification to all interested listeners.
+// NotifyPackageRevisionChange is called to send a change notification to all interested listeners.
 func (r *watcherManager) NotifyPackageRevisionChange(eventType watch.EventType, obj repository.PackageRevision) int {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()

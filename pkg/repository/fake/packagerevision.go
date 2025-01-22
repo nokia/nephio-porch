@@ -36,14 +36,14 @@ type FakePackageRevision struct {
 	Kptfile            kptfile.KptFile
 }
 
+var _ repository.PackageRevision = &FakePackageRevision{}
+
 func (pr *FakePackageRevision) KubeObjectName() string {
 	return pr.Name
 }
 
-var _ repository.PackageRevision = &FakePackageRevision{}
-
 // ToMainPackageRevision implements repository.PackageRevision.
-func (f *FakePackageRevision) ToMainPackageRevision() repository.PackageRevision {
+func (pr *FakePackageRevision) ToMainPackageRevision() repository.PackageRevision {
 	panic("unimplemented")
 }
 
@@ -71,29 +71,48 @@ func (pr *FakePackageRevision) GetPackageRevision(context.Context) (*v1alpha1.Pa
 	return pr.PackageRevision, nil
 }
 
-func (f *FakePackageRevision) GetResources(context.Context) (*v1alpha1.PackageRevisionResources, error) {
-	return f.Resources, nil
+func (pr *FakePackageRevision) GetResources(context.Context) (*v1alpha1.PackageRevisionResources, error) {
+	return pr.Resources, nil
 }
 
-func (f *FakePackageRevision) GetKptfile(ctx context.Context) (kptfile.KptFile, error) {
-	return f.Kptfile, nil
+func (pr *FakePackageRevision) GetKptfile(context.Context) (kptfile.KptFile, error) {
+	return pr.Kptfile, nil
 }
 
-func (f *FakePackageRevision) GetUpstreamLock(context.Context) (kptfile.Upstream, kptfile.UpstreamLock, error) {
-	return *f.Kptfile.Upstream, *f.Kptfile.UpstreamLock, nil
+func (pr *FakePackageRevision) GetUpstreamLock(context.Context) (kptfile.Upstream, kptfile.UpstreamLock, error) {
+	return *pr.Kptfile.Upstream, *pr.Kptfile.UpstreamLock, nil
 }
 
-func (f *FakePackageRevision) GetLock() (kptfile.Upstream, kptfile.UpstreamLock, error) {
-	return *f.Kptfile.Upstream, *f.Kptfile.UpstreamLock, nil
+func (pr *FakePackageRevision) GetLock() (kptfile.Upstream, kptfile.UpstreamLock, error) {
+	return *pr.Kptfile.Upstream, *pr.Kptfile.UpstreamLock, nil
 }
 
-func (f *FakePackageRevision) UpdateLifecycle(context.Context, v1alpha1.PackageRevisionLifecycle) error {
+func (pr *FakePackageRevision) UpdateLifecycle(context.Context, v1alpha1.PackageRevisionLifecycle) error {
 	return nil
 }
 
-func (f *FakePackageRevision) GetMeta() metav1.ObjectMeta {
+func (pr *FakePackageRevision) GetMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{}
 }
 
-func (f *FakePackageRevision) SetMeta(metav1.ObjectMeta) {
+func (pr *FakePackageRevision) SetMeta(metav1.ObjectMeta) {
+}
+
+// Implementation of the repository.PackageRevisionDraft interface for testing.
+type FakePackageRevisionDraft struct {
+	Name string
+}
+
+var _ repository.PackageRevisionDraft = &FakePackageRevisionDraft{}
+
+func (prd *FakePackageRevisionDraft) UpdateResources(context.Context, *v1alpha1.PackageRevisionResources, *v1alpha1.Task) error {
+	return nil
+}
+
+func (prd *FakePackageRevisionDraft) UpdateLifecycle(ctx context.Context, new v1alpha1.PackageRevisionLifecycle) error {
+	return nil
+}
+
+func (prd *FakePackageRevisionDraft) GetName() string {
+	return prd.Name
 }

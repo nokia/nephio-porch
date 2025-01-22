@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package engine
+package utils
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ import (
 
 // Relevant: https://github.com/golang/go/issues/20126
 
-func filepathSafeJoin(dir string, relative string) (string, error) {
+func FilepathSafeJoin(dir string, relative string) (string, error) {
 	p := filepath.Join(dir, relative)
 	p = filepath.Clean(p)
 

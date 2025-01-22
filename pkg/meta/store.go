@@ -54,7 +54,7 @@ type MetadataStore interface {
 
 var _ MetadataStore = &crdMetadataStore{}
 
-func NewCrdMetadataStore(coreClient client.Client) *crdMetadataStore {
+func NewCrdMetadataStore(coreClient client.Client) MetadataStore {
 	return &crdMetadataStore{
 		coreClient: coreClient,
 	}
