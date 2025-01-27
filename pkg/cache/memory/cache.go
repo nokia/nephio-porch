@@ -195,15 +195,10 @@ func (c *Cache) CloseRepository(ctx context.Context, repositorySpec *configapi.R
 		}
 	}
 
-	var repository *cachedRepository
-	{
-		c.mutex.Lock()
-		if r, ok := c.repositories[key]; ok {
-			delete(c.repositories, key)
-			repository = r
-		}
-		c.mutex.Unlock()
-	}
+	c.mutex.Lock()
+	repository := c.repositories[key]
+	delete(c.repositories, key)
+	c.mutex.Unlock()
 
 	if repository != nil {
 		return repository.Close()

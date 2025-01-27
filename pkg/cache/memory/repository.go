@@ -144,30 +144,38 @@ func (r *cachedRepository) getPackages(ctx context.Context, filter repository.Li
 func (r *cachedRepository) getCachedPackages(ctx context.Context, forceRefresh bool) (map[repository.PackageKey]*cachedPackage, map[repository.PackageRevisionKey]*cachedPackageRevision, error) {
 	// must hold mutex
 
-	r.mutex.Lock()
-	packages := r.cachedPackages
-	packageRevisions := r.cachedPackageRevisions
-	err := r.refreshRevisionsError
+	var packageRevisions map[repository.PackageRevisionKey]*cachedPackageRevision
+	var packages map[repository.PackageKey]*cachedPackage
+	var refreshErr error
 
-	if forceRefresh {
-		packages = nil
-		packageRevisions = nil
+	err := func() error {
+		r.mutex.Lock()
+		defer r.mutex.Unlock()
 
-		if gitRepo, isGitRepo := r.repo.(git.GitRepository); isGitRepo {
-			// TODO: Figure out a way to do this without the cache layer
-			//  needing to know what type of repo we are working with.
-			if err := gitRepo.UpdateDeletionProposedCache(); err != nil {
-				return nil, nil, err
+		if forceRefresh {
+			if gitRepo, isGitRepo := r.repo.(git.GitRepository); isGitRepo {
+				// TODO: Figure out a way to do this without the cache layer
+				//  needing to know what type of repo we are working with.
+				if err := gitRepo.UpdateDeletionProposedCache(); err != nil {
+					return err
+				}
 			}
+		} else {
+			packages = r.cachedPackages
+			packageRevisions = r.cachedPackageRevisions
+			refreshErr = r.refreshRevisionsError
 		}
+		return nil
+	}()
+	if err != nil {
+		return nil, nil, err
 	}
-	r.mutex.Unlock()
 
 	if packages == nil {
-		packages, packageRevisions, err = r.refreshAllCachedPackages(ctx)
+		return r.refreshAllCachedPackages(ctx)
 	}
 
-	return packages, packageRevisions, err
+	return packages, packageRevisions, refreshErr
 }
 
 func (r *cachedRepository) CreatePackageRevision(ctx context.Context, obj *v1alpha1.PackageRevision) (repository.PackageRevisionDraft, error) {
