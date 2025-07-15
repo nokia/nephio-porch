@@ -19,6 +19,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hexops/gotextdiff"
+	"github.com/hexops/gotextdiff/myers"
+	"github.com/hexops/gotextdiff/span"
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/api/porchconfig/v1alpha1"
 	"github.com/nephio-project/porch/pkg/repository"
@@ -224,7 +227,9 @@ func isUnchanged(old, new map[string]string) bool {
 
 	for fname, content := range old {
 		if content != new[fname] {
-			klog.V(v).Infof("\tContents of %q differ", fname)
+			edits := myers.ComputeEdits(span.URIFromPath(fname), content, new[fname])
+			diff := gotextdiff.ToUnified(fname, fname, content, edits)
+			klog.V(v).Infof("\tContents of %q differ:\n%s", fname, diff)
 			return false
 		}
 	}
