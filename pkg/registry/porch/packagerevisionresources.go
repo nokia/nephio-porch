@@ -17,8 +17,7 @@ package porch
 import (
 	"context"
 	"fmt"
-
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"reflect"
 
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/api/porchconfig/v1alpha1"
@@ -158,6 +157,12 @@ func (r *packageRevisionResources) Update(ctx context.Context, name string, objI
 		return nil, false, apierrors.NewBadRequest(fmt.Sprintf("expected PackageRevisionResources object, got %T", newRuntimeObj))
 	}
 
+	// TODO: costly at large file sizes, anything faster?
+	if reflect.DeepEqual(oldApiPkgRevResources.Spec.Resources, newObj.Spec.Resources) {
+		klog.Warningf("Not updating PackageRevisionResources %q as resources are unchanged", name)
+		return oldApiPkgRevResources, false, nil
+	}
+
 	if updateValidation != nil {
 		err := updateValidation(ctx, newObj, oldApiPkgRevResources)
 		if err != nil {
@@ -175,7 +180,7 @@ func (r *packageRevisionResources) Update(ctx context.Context, name string, objI
 	repositoryID := types.NamespacedName{Namespace: prKey.RKey().Namespace, Name: prKey.RKey().Name}
 	if err := r.coreClient.Get(ctx, repositoryID, &repositoryObj); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, false, apierrors.NewNotFound(schema.GroupResource(api.PackageRevisionResourcesGVR.GroupResource()), repositoryID.Name)
+			return nil, false, apierrors.NewNotFound(api.PackageRevisionResourcesGVR.GroupResource(), repositoryID.Name)
 		}
 		return nil, false, apierrors.NewInternalError(fmt.Errorf("error getting repository %v: %w", repositoryID, err))
 	}
