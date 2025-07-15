@@ -17,7 +17,7 @@ package porch
 import (
 	"context"
 	"fmt"
-	"reflect"
+	"strings"
 
 	api "github.com/nephio-project/porch/api/porch/v1alpha1"
 	"github.com/nephio-project/porch/api/porchconfig/v1alpha1"
@@ -119,6 +119,8 @@ func (r *packageRevisionResources) Update(ctx context.Context, name string, objI
 	ctx, span := tracer.Start(ctx, "[START]::packageRevisionResources::Update", trace.WithAttributes())
 	defer span.End()
 
+	klog.Infof("Updating PackageRevisionResources %q", name)
+
 	namespace, namespaced := genericapirequest.NamespaceFrom(ctx)
 	if !namespaced {
 		return nil, false, apierrors.NewBadRequest("namespace must be specified")
@@ -158,7 +160,7 @@ func (r *packageRevisionResources) Update(ctx context.Context, name string, objI
 	}
 
 	// TODO: costly at large file sizes, anything faster?
-	if reflect.DeepEqual(oldApiPkgRevResources.Spec.Resources, newObj.Spec.Resources) {
+	if isUnchanged(oldApiPkgRevResources.Spec.Resources, newObj.Spec.Resources) {
 		klog.Warningf("Not updating PackageRevisionResources %q as resources are unchanged", name)
 		return oldApiPkgRevResources, false, nil
 	}
@@ -199,4 +201,60 @@ func (r *packageRevisionResources) Update(ctx context.Context, name string, objI
 	}
 
 	return created, false, nil
+}
+
+func isUnchanged(old, new map[string]string) bool {
+	// TODO: make higher
+	const v = 2
+
+	klog.V(v).Infof("\tChecking changes...")
+
+	if len(old) != len(new) {
+		klog.V(v).Infof("\tLengths not equal")
+		return false
+	}
+	klog.V(v).Infof("\tLengths equal")
+
+	if oldOnly, newOnly := diffKeys(old, new); len(oldOnly) != 0 || len(newOnly) != 0 {
+		klog.V(v).Infof("\tOld only files: [%s]", strings.Join(oldOnly, ", "))
+		klog.V(v).Infof("\tNew only files: [%s]", strings.Join(newOnly, ", "))
+		return false
+	}
+	klog.V(v).Infof("\tFile names identical")
+
+	for fname, content := range old {
+		if content != new[fname] {
+			klog.V(v).Infof("\tContents of %q differ", fname)
+			return false
+		}
+	}
+
+	klog.V(v).Infof("\tNo changes detected")
+
+	return true
+}
+
+func diffKeys(old, new map[string]string) (oldOnly []string, newOnly []string) {
+	// create a set of old filenames
+	oldKeySet := map[string]struct{}{}
+	for oldKey := range old {
+		oldKeySet[oldKey] = struct{}{}
+	}
+
+	// go through new filenames, if it exists in old, delete it from the set,
+	// if it doesn't, it means this is a NEW file
+	for newKey := range new {
+		if _, ok := oldKeySet[newKey]; ok {
+			delete(oldKeySet, newKey)
+		} else {
+			newOnly = append(newOnly, newKey)
+		}
+	}
+
+	// if there are still filenames in the set, these have been DELETED or RENAMED
+	for key := range oldKeySet {
+		oldOnly = append(oldOnly, key)
+	}
+
+	return
 }
